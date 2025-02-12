@@ -250,7 +250,7 @@ class TD3(object):
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)
-        latest_scan[inf_mask] = 10.0
+        latest_scan[inf_mask] = 7.0
 
         max_bins = self.state_dim - 5
         bin_size = int(np.ceil(len(latest_scan) / max_bins))
@@ -263,9 +263,13 @@ class TD3(object):
             # Get the current bin
             bin = latest_scan[i : i + min(bin_size, len(latest_scan) - i)]
             # Find the minimum value in the current bin and append it to the min_values list
-            min_values.append(min(bin) / 10)
+            min_values.append(min(bin) / 7)
+
+        # Normalize to [0, 1] range
         distance /= 10
-        state = min_values + [distance, cos, sin] + [action[0], action[1]]
+        lin_vel = action[0] * 2
+        ang_vel = (action[1] + 1)/2
+        state = min_values + [distance, cos, sin] + [lin_vel, ang_vel]
 
         assert len(state) == self.state_dim
         terminal = 1 if collision or goal else 0

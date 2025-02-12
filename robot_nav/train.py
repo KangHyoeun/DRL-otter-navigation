@@ -41,7 +41,7 @@ def main(args=None):
         max_action=max_action,
         device=device,
         save_every=save_every,
-        load_model=False,
+        load_model=True,
     )  # instantiate a model
 
     sim = SIM_ENV()  # instantiate environment
