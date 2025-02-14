@@ -268,7 +268,7 @@ class TD3(object):
         # Normalize to [0, 1] range
         distance /= 10
         lin_vel = action[0] * 2
-        ang_vel = (action[1] + 1)/2
+        ang_vel = (action[1] + 1) / 2
         state = min_values + [distance, cos, sin] + [lin_vel, ang_vel]
 
         assert len(state) == self.state_dim

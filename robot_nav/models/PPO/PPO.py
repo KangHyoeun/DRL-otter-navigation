@@ -303,7 +303,7 @@ class PPO:
         # Loop through the data and create bins
         for i in range(0, len(latest_scan), bin_size):
             # Get the current bin
-            bin = latest_scan[i: i + min(bin_size, len(latest_scan) - i)]
+            bin = latest_scan[i : i + min(bin_size, len(latest_scan) - i)]
             # Find the minimum value in the current bin and append it to the min_values list
             min_values.append(min(bin) / 7)
 

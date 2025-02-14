@@ -40,9 +40,10 @@ class SIM_ENV:
         self.env.robot.set_goal(
             np.array([[random.uniform(1, 9)], [random.uniform(1, 9)], [0]])
         )
-
         self.env.random_obstacle_position(
-            range_low=[0, 0, -3.14], range_high=[10, 10, 3.14], ids=[1, 2, 3]
+            range_low=[0, 0, -3.14],
+            range_high=[10, 10, 3.14],
+            ids=[i + 1 for i in range(5)],
         )
 
         self.robot_goal = self.env.robot.goal
