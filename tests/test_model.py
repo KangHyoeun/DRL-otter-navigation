@@ -5,6 +5,7 @@ from robot_nav.utils import get_buffer
 from robot_nav.sim import SIM_ENV
 import pytest
 
+
 @pytest.mark.parametrize("model", [BTD3, TD3, SAC])
 def test_models(model):
     test_model = model(
@@ -27,7 +28,7 @@ def test_models(model):
         training_iterations=0,
         batch_size=0,
         buffer_size=100,
-        file_names = ["test_data.yml"]
+        file_names=["test_data.yml"],
     )
 
     test_model.train(

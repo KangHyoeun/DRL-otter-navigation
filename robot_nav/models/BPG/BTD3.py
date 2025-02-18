@@ -178,16 +178,29 @@ class BTD3(object):
             distances /= 0.3
             final_steps = torch.ceil(distances)
             inter_steps = torch.trunc(distances)
-            final_discount = torch.tensor([discount ** pw for pw in final_steps], device=self.device)
-            final_rew = torch.ones_like(distances, device=self.device) * 100 * final_discount
+            final_discount = torch.tensor(
+                [discount**pw for pw in final_steps], device=self.device
+            )
+            final_rew = (
+                torch.ones_like(distances, device=self.device) * 100 * final_discount
+            )
 
             max_inter_steps = inter_steps.max()
-            exponents = torch.arange(1, max_inter_steps + 1, dtype=torch.float32, device=self.device)
-            discount_exponents = torch.tensor([discount**e for e in exponents], device=self.device)
-            inter_rew = torch.tensor([sum([0.5 * discount_exponents[i] for i in range(int(steps))]) for steps in inter_steps], device=self.device)
+            exponents = torch.arange(
+                1, max_inter_steps + 1, dtype=torch.float32, device=self.device
+            )
+            discount_exponents = torch.tensor(
+                [discount**e for e in exponents], device=self.device
+            )
+            inter_rew = torch.tensor(
+                [
+                    sum([0.5 * discount_exponents[i] for i in range(int(steps))])
+                    for steps in inter_steps
+                ],
+                device=self.device,
+            )
             max_future_rew = final_rew + inter_rew
             max_bound = reward + max_future_rew.view(-1, 1)
-
 
             target_Q = reward + ((1 - done) * discount * target_Q).detach()
 
@@ -201,20 +214,22 @@ class BTD3(object):
             temporal_Q1 = current_Q1[mask] - next_Q1
             temporal_Q2 = current_Q2[mask] - next_Q2
 
-            reward_loss = 0 * (F.mse_loss(reward[mask], temporal_Q1) + F.mse_loss(reward[mask], temporal_Q2))
-
+            reward_loss = 0 * (
+                F.mse_loss(reward[mask], temporal_Q1)
+                + F.mse_loss(reward[mask], temporal_Q2)
+            )
 
             max_bound_loss_Q1 = current_Q1 - max_bound
             max_bound_loss_Q2 = current_Q2 - max_bound
-            max_bound_loss_Q1[max_bound_loss_Q1<0] = 0
+            max_bound_loss_Q1[max_bound_loss_Q1 < 0] = 0
             max_bound_loss_Q2[max_bound_loss_Q2 < 0] = 0
             max_bound_loss_Q1 = torch.square(max_bound_loss_Q1).mean()
             max_bound_loss_Q2 = torch.square(max_bound_loss_Q1).mean()
 
-
-
             # Calculate the loss between the current Q value and the target Q value
-            loss_target_Q = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
+            loss_target_Q = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
+                current_Q2, target_Q
+            )
             max_bound_loss = 10 * (max_bound_loss_Q1 + max_bound_loss_Q2)
             loss = loss_target_Q + max_bound_loss + reward_loss
             # Perform the gradient descent
@@ -255,9 +270,15 @@ class BTD3(object):
         self.iter_count += 1
         # Write new values for tensorboard
         self.writer.add_scalar("train/loss", av_loss / iterations, self.iter_count)
-        self.writer.add_scalar("train/av_target_loss", av_target_loss / iterations, self.iter_count)
-        self.writer.add_scalar("train/av_max_bound_loss", av_max_bound_loss / iterations, self.iter_count)
-        self.writer.add_scalar("train/av_reward_loss", av_reward_loss / iterations, self.iter_count)
+        self.writer.add_scalar(
+            "train/av_target_loss", av_target_loss / iterations, self.iter_count
+        )
+        self.writer.add_scalar(
+            "train/av_max_bound_loss", av_max_bound_loss / iterations, self.iter_count
+        )
+        self.writer.add_scalar(
+            "train/av_reward_loss", av_reward_loss / iterations, self.iter_count
+        )
         self.writer.add_scalar("train/avg_Q", av_Q / iterations, self.iter_count)
         self.writer.add_scalar("train/max_Q", max_Q, self.iter_count)
         if self.save_every > 0 and self.iter_count % self.save_every == 0:

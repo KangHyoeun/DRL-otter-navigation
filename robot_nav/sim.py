@@ -46,7 +46,6 @@ class SIM_ENV:
             ids=[i + 1 for i in range(5)],
         )
 
-
         self.robot_goal = self.env.robot.goal
 
         action = [0.0, 0.0]

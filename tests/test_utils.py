@@ -36,7 +36,7 @@ def test_buffer():
         training_iterations=0,
         batch_size=0,
         buffer_size=100,
-        file_names=["test_data.yml"]
+        file_names=["test_data.yml"],
     )
     assert prefilled_buffer.count == 100
 
