@@ -46,6 +46,7 @@ class SIM_ENV:
             ids=[i + 1 for i in range(5)],
         )
 
+
         self.robot_goal = self.env.robot.goal
 
         action = [0.0, 0.0]
@@ -60,7 +61,6 @@ class SIM_ENV:
         vec2 = vec2 / np.linalg.norm(vec2)
         cos = np.dot(vec1, vec2)
         sin = vec1[0] * vec2[1] - vec1[1] * vec2[0]
-
         return cos, sin
 
     @staticmethod

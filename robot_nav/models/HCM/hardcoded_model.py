@@ -98,7 +98,7 @@ class HCM(object):
                     "latest_scan": latest_scan.tolist(),
                     "distance": distance.tolist(),
                     "cos": cos.tolist(),
-                    "sin": sin,
+                    "sin": sin.tolist(),
                     "collision": collision,
                     "goal": goal,
                     "action": action,

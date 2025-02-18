@@ -7,7 +7,7 @@ from robot_nav.sim import SIM_ENV
 def test_buffer():
     model = SAC(
         state_dim=10,
-        action_dim=10,
+        action_dim=2,
         max_action=1,
         device="cpu",
         save_every=0,
@@ -36,6 +36,7 @@ def test_buffer():
         training_iterations=0,
         batch_size=0,
         buffer_size=100,
+        file_names=["test_data.yml"]
     )
     assert prefilled_buffer.count == 100
 

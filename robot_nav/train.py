@@ -1,4 +1,5 @@
 from models.TD3.TD3 import TD3
+from robot_nav.models.BPG.BTD3 import BTD3
 from models.SAC.SAC import SAC
 from models.HCM.hardcoded_model import HCM
 from models.PPO.PPO import PPO
@@ -31,11 +32,11 @@ def main(args=None):
     load_saved_buffer = False  # whether to load experiences from assets/data.yml
     pretrain = False  # whether to use the loaded experiences to pre-train the model (load_saved_buffer must be True)
     pretraining_iterations = (
-        10  # number of training iterations to run during pre-training
+        2000  # number of training iterations to run during pre-training
     )
     save_every = 10  # save the model every n training cycles
 
-    model = TD3(
+    model = BTD3(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
