@@ -54,7 +54,7 @@ class HCM(object):
         batch_size,
         discount=0.99999,
         tau=0.005,
-        policy_noise=0.2,  # discount=0.99
+        policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
     ):
@@ -98,7 +98,7 @@ class HCM(object):
                     "latest_scan": latest_scan.tolist(),
                     "distance": distance.tolist(),
                     "cos": cos.tolist(),
-                    "sin": sin,
+                    "sin": sin.tolist(),
                     "collision": collision,
                     "goal": goal,
                     "action": action,
