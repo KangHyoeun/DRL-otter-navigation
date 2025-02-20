@@ -1,4 +1,5 @@
 from models.TD3.TD3 import TD3
+from models.DDPG.DDPG import DDPG
 from robot_nav.models.BPG.BTD3 import BTD3
 from robot_nav.models.BPG.BPG import BPG
 from models.SAC.SAC import SAC
@@ -33,11 +34,11 @@ def main(args=None):
     load_saved_buffer = False  # whether to load experiences from assets/data.yml
     pretrain = False  # whether to use the loaded experiences to pre-train the model (load_saved_buffer must be True)
     pretraining_iterations = (
-        2000  # number of training iterations to run during pre-training
+        10  # number of training iterations to run during pre-training
     )
     save_every = 10  # save the model every n training cycles
 
-    model = BPG(
+    model = TD3(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
