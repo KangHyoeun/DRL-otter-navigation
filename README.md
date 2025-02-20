@@ -23,11 +23,12 @@ and information about the goal point a robot learns to navigate to a specified p
 
 **Sources**
 
-| Package/Model | Source | 
-|:--------------|:------:| 
-| IR-SIM        |  https://github.com/hanruihua/ir-sim  | 
-| TD3           |  https://github.com/reiniscimurs/DRL-Robot-Navigation-ROS2  | 
-| SAC           | https://github.com/denisyarats/pytorch_sac  | 
-| PPO           | https://github.com/nikhilbarhate99/PPO-PyTorch  | 
+| Package/Model |                          Source                           | 
+|:--------------|:---------------------------------------------------------:| 
+| IR-SIM        |            https://github.com/hanruihua/ir-sim            | 
+| TD3           | https://github.com/reiniscimurs/DRL-Robot-Navigation-ROS2 | 
+| SAC           |        https://github.com/denisyarats/pytorch_sac         | 
+| PPO           |      https://github.com/nikhilbarhate99/PPO-PyTorch       | 
+| DDPG          |                     Updated from TD3                      | 
 
 

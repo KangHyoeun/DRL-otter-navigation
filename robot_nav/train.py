@@ -1,4 +1,5 @@
 from models.TD3.TD3 import TD3
+from models.DDPG.DDPG import DDPG
 from models.SAC.SAC import SAC
 from models.HCM.hardcoded_model import HCM
 from models.PPO.PPO import PPO
