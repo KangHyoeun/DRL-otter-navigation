@@ -44,7 +44,7 @@ class SIM_ENV:
             range_low=[0, 0, -3.14],
             range_high=[10, 10, 3.14],
             ids=[i + 1 for i in range(5)],
-            non_overlapping=True
+            non_overlapping=True,
         )
 
         self.robot_goal = self.env.robot.goal

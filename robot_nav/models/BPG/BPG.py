@@ -1,4 +1,3 @@
-import math
 from pathlib import Path
 
 import numpy as np
@@ -40,15 +39,6 @@ class Critic(nn.Module):
         self.layer_3 = nn.Linear(300, 1)
         torch.nn.init.kaiming_uniform_(self.layer_3.weight, nonlinearity="leaky_relu")
 
-        self.layer_4 = nn.Linear(state_dim, 400)
-        torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
-        self.layer_5_s = nn.Linear(400, 300)
-        torch.nn.init.kaiming_uniform_(self.layer_5_s.weight, nonlinearity="leaky_relu")
-        self.layer_5_a = nn.Linear(action_dim, 300)
-        torch.nn.init.kaiming_uniform_(self.layer_5_a.weight, nonlinearity="leaky_relu")
-        self.layer_6 = nn.Linear(300, 1)
-        torch.nn.init.kaiming_uniform_(self.layer_6.weight, nonlinearity="leaky_relu")
-
     def forward(self, s, a):
         s1 = F.leaky_relu(self.layer_1(s))
         self.layer_2_s(s1)
@@ -56,20 +46,13 @@ class Critic(nn.Module):
         s11 = torch.mm(s1, self.layer_2_s.weight.data.t())
         s12 = torch.mm(a, self.layer_2_a.weight.data.t())
         s1 = F.leaky_relu(s11 + s12 + self.layer_2_a.bias.data)
-        q1 = self.layer_3(s1)
+        q = self.layer_3(s1)
 
-        s2 = F.leaky_relu(self.layer_4(s))
-        self.layer_5_s(s2)
-        self.layer_5_a(a)
-        s21 = torch.mm(s2, self.layer_5_s.weight.data.t())
-        s22 = torch.mm(a, self.layer_5_a.weight.data.t())
-        s2 = F.leaky_relu(s21 + s22 + self.layer_5_a.bias.data)
-        q2 = self.layer_6(s2)
-        return q1, q2
+        return q
 
 
 # TD3 network
-class BTD3(object):
+class BPG(object):
     def __init__(
         self,
         state_dim,
@@ -80,7 +63,7 @@ class BTD3(object):
         save_every=0,
         load_model=False,
         save_directory=Path("robot_nav/models/BPG/checkpoint"),
-        model_name="BTD3",
+        model_name="BPG",
         load_directory=Path("robot_nav/models/BPG/checkpoint"),
     ):
         # Initialize the Actor network
@@ -166,13 +149,13 @@ class BTD3(object):
             next_action = (next_action + noise).clamp(-self.max_action, self.max_action)
 
             # Calculate the Q values from the critic-target network for the next state-action pair
-            target_Q1, target_Q2 = self.critic_target(next_state, next_action)
+            target_Q = self.critic_target(next_state, next_action)
 
             # Select the minimal Q value from the 2 calculated values
-            target_Q = torch.min(target_Q1, target_Q2)
             av_Q += torch.mean(target_Q)
             max_Q = max(max_Q, torch.max(target_Q))
             # Calculate the final Q value from the target network parameters by using Bellman equation
+
             cos = next_state[:, -4]
             sin = next_state[:, -3]
             theta = torch.atan2(sin, cos)
@@ -232,32 +215,22 @@ class BTD3(object):
             target_Q = reward + ((1 - done) * discount * target_Q).detach()
 
             # Get the Q values of the basis networks with the current parameters
-            current_Q1, current_Q2 = self.critic(state, action)
+            current_Q = self.critic(state, action)
             next_running_action = self.actor(next_state)
-            next_Q1, next_Q2 = self.critic(next_state, next_running_action)
+            next_Q = self.critic(next_state, next_running_action)
             mask = ~done.bool()
-            next_Q1 = discount * next_Q1[mask]
-            next_Q2 = discount * next_Q2[mask]
-            temporal_Q1 = current_Q1[mask] - next_Q1
-            temporal_Q2 = current_Q2[mask] - next_Q2
+            next_Q = discount * next_Q[mask]
+            temporal_Q = current_Q[mask] - next_Q
 
-            reward_loss = 0 * (
-                F.mse_loss(reward[mask], temporal_Q1)
-                + F.mse_loss(reward[mask], temporal_Q2)
-            )
+            reward_loss = 0 * F.mse_loss(reward[mask], temporal_Q)
 
-            max_bound_loss_Q1 = current_Q1 - max_bound
-            max_bound_loss_Q2 = current_Q2 - max_bound
-            max_bound_loss_Q1[max_bound_loss_Q1 < 0] = 0
-            max_bound_loss_Q2[max_bound_loss_Q2 < 0] = 0
-            max_bound_loss_Q1 = torch.square(max_bound_loss_Q1).mean()
-            max_bound_loss_Q2 = torch.square(max_bound_loss_Q1).mean()
+            max_bound_loss_Q = current_Q - max_bound
+            max_bound_loss_Q[max_bound_loss_Q < 0] = 0
+            max_bound_loss_Q = torch.square(max_bound_loss_Q).mean()
 
             # Calculate the loss between the current Q value and the target Q value
-            loss_target_Q = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
-                current_Q2, target_Q
-            )
-            max_bound_loss = 0 * (max_bound_loss_Q1 + max_bound_loss_Q2)
+            loss_target_Q = F.mse_loss(current_Q, target_Q)
+            max_bound_loss = 0 * max_bound_loss_Q
             loss = loss_target_Q + max_bound_loss + reward_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()
@@ -267,7 +240,7 @@ class BTD3(object):
             if it % policy_freq == 0:
                 # Maximize the actor output value by performing gradient descent on negative Q values
                 # (essentially perform gradient ascent)
-                actor_grad, _ = self.critic(state, self.actor(state))
+                actor_grad = self.critic(state, self.actor(state))
                 actor_grad = -actor_grad.mean()
                 self.actor_optimizer.zero_grad()
                 actor_grad.backward()

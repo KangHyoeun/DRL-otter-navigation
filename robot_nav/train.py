@@ -1,5 +1,6 @@
 from models.TD3.TD3 import TD3
 from robot_nav.models.BPG.BTD3 import BTD3
+from robot_nav.models.BPG.BPG import BPG
 from models.SAC.SAC import SAC
 from models.HCM.hardcoded_model import HCM
 from models.PPO.PPO import PPO
@@ -36,7 +37,7 @@ def main(args=None):
     )
     save_every = 10  # save the model every n training cycles
 
-    model = BTD3(
+    model = BPG(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,

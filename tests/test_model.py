@@ -1,4 +1,5 @@
 from robot_nav.models.BPG.BTD3 import BTD3
+from robot_nav.models.BPG.BPG import BPG
 from robot_nav.models.TD3.TD3 import TD3
 from robot_nav.models.SAC.SAC import SAC
 from robot_nav.utils import get_buffer
@@ -6,7 +7,7 @@ from robot_nav.sim import SIM_ENV
 import pytest
 
 
-@pytest.mark.parametrize("model", [BTD3, TD3, SAC])
+@pytest.mark.parametrize("model", [BTD3, BPG, TD3, SAC])
 def test_models(model):
     test_model = model(
         state_dim=10,
