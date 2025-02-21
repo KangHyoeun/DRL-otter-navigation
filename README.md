@@ -19,6 +19,9 @@ and information about the goal point a robot learns to navigate to a specified p
 * Run the training by executing the train.py file \
 `poetry run python robot_nav/train.py`
 
+* To open tensorbord, in a new terminal execute \
+`tensorboard --logdir runs`
+
 
 
 **Sources**
