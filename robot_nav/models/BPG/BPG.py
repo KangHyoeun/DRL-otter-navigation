@@ -230,7 +230,7 @@ class BPG(object):
 
             # Calculate the loss between the current Q value and the target Q value
             loss_target_Q = F.mse_loss(current_Q, target_Q)
-            max_bound_loss = 0 * max_bound_loss_Q
+            max_bound_loss = 10 * max_bound_loss_Q
             loss = loss_target_Q + max_bound_loss + reward_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()
