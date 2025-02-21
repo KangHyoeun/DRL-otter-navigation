@@ -192,8 +192,6 @@ class BTD3(object):
                 final_turn_rew, device=self.device
             )
 
-            # add the turning steps to total steps
-
             full_turn_steps += 1
             distances = next_state[:, -5]
             distances *= 10
@@ -233,18 +231,6 @@ class BTD3(object):
 
             # Get the Q values of the basis networks with the current parameters
             current_Q1, current_Q2 = self.critic(state, action)
-            next_running_action = self.actor(next_state)
-            next_Q1, next_Q2 = self.critic(next_state, next_running_action)
-            mask = ~done.bool()
-            next_Q1 = discount * next_Q1[mask]
-            next_Q2 = discount * next_Q2[mask]
-            temporal_Q1 = current_Q1[mask] - next_Q1
-            temporal_Q2 = current_Q2[mask] - next_Q2
-
-            reward_loss = 0 * (
-                F.mse_loss(reward[mask], temporal_Q1)
-                + F.mse_loss(reward[mask], temporal_Q2)
-            )
 
             max_bound_loss_Q1 = current_Q1 - max_bound
             max_bound_loss_Q2 = current_Q2 - max_bound
@@ -258,7 +244,7 @@ class BTD3(object):
                 current_Q2, target_Q
             )
             max_bound_loss = 0 * (max_bound_loss_Q1 + max_bound_loss_Q2)
-            loss = loss_target_Q + max_bound_loss + reward_loss
+            loss = loss_target_Q + max_bound_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()
             loss.backward()

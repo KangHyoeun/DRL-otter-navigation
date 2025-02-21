@@ -120,7 +120,6 @@ class BPG(object):
         av_loss = 0
         av_target_loss = 0
         av_max_bound_loss = 0
-        av_reward_loss = 0
         for it in range(iterations):
             # sample a batch from the replay buffer
             (
@@ -175,8 +174,6 @@ class BPG(object):
                 final_turn_rew, device=self.device
             )
 
-            # add the turning steps to total steps
-
             full_turn_steps += 1
             distances = next_state[:, -5]
             distances *= 10
@@ -216,22 +213,17 @@ class BPG(object):
 
             # Get the Q values of the basis networks with the current parameters
             current_Q = self.critic(state, action)
-            next_running_action = self.actor(next_state)
-            next_Q = self.critic(next_state, next_running_action)
-            mask = ~done.bool()
-            next_Q = discount * next_Q[mask]
-            temporal_Q = current_Q[mask] - next_Q
-
-            reward_loss = 0 * F.mse_loss(reward[mask], temporal_Q)
 
             max_bound_loss_Q = current_Q - max_bound
             max_bound_loss_Q[max_bound_loss_Q < 0] = 0
             max_bound_loss_Q = torch.square(max_bound_loss_Q).mean()
+            max_bound_loss = max_bound_loss_Q
 
             # Calculate the loss between the current Q value and the target Q value
             loss_target_Q = F.mse_loss(current_Q, target_Q)
-            max_bound_loss = 10 * max_bound_loss_Q
-            loss = loss_target_Q + max_bound_loss + reward_loss
+
+            max_bound_loss = 0 * max_bound_loss
+            loss = loss_target_Q + max_bound_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()
             loss.backward()
@@ -266,7 +258,6 @@ class BPG(object):
             av_loss += loss
             av_target_loss += loss_target_Q
             av_max_bound_loss += max_bound_loss
-            av_reward_loss += reward_loss
         self.iter_count += 1
         # Write new values for tensorboard
         self.writer.add_scalar("train/loss", av_loss / iterations, self.iter_count)
@@ -275,9 +266,6 @@ class BPG(object):
         )
         self.writer.add_scalar(
             "train/av_max_bound_loss", av_max_bound_loss / iterations, self.iter_count
-        )
-        self.writer.add_scalar(
-            "train/av_reward_loss", av_reward_loss / iterations, self.iter_count
         )
         self.writer.add_scalar("train/avg_Q", av_Q / iterations, self.iter_count)
         self.writer.add_scalar("train/max_Q", max_Q, self.iter_count)
