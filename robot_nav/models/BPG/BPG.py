@@ -177,7 +177,7 @@ class BPG(object):
             full_turn_steps += 1
             distances = next_state[:, -5]
             distances *= 10
-            distances /= 0.3
+            distances /= 0.5 * 0.3
             final_steps = torch.ceil(distances) + full_turn_steps
             inter_steps = torch.trunc(distances) + full_turn_steps
             final_discount = torch.tensor(
@@ -222,7 +222,7 @@ class BPG(object):
             # Calculate the loss between the current Q value and the target Q value
             loss_target_Q = F.mse_loss(current_Q, target_Q)
 
-            max_bound_loss = 0 * max_bound_loss
+            max_bound_loss = 10 * max_bound_loss
             loss = loss_target_Q + max_bound_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()

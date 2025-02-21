@@ -195,7 +195,7 @@ class BTD3(object):
             full_turn_steps += 1
             distances = next_state[:, -5]
             distances *= 10
-            distances /= 0.3
+            distances /= 0.5 * 0.3
             final_steps = torch.ceil(distances) + full_turn_steps
             inter_steps = torch.trunc(distances) + full_turn_steps
             final_discount = torch.tensor(
@@ -243,7 +243,7 @@ class BTD3(object):
             loss_target_Q = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
                 current_Q2, target_Q
             )
-            max_bound_loss = 0 * (max_bound_loss_Q1 + max_bound_loss_Q2)
+            max_bound_loss = 10 * (max_bound_loss_Q1 + max_bound_loss_Q2)
             loss = loss_target_Q + max_bound_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()
