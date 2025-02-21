@@ -4,7 +4,6 @@ import random
 
 import shapely
 from irsim.lib.handler.geometry_handler import GeometryFactory
-from irsim.world import ObjectBase
 
 
 class SIM_ENV:
