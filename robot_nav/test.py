@@ -3,6 +3,8 @@ from models.DDPG.DDPG import DDPG
 from models.SAC.SAC import SAC
 from models.HCM.hardcoded_model import HCM
 from models.PPO.PPO import PPO
+from robot_nav.models.BPG.BPG import BPG
+from robot_nav.models.BPG.BTD3 import BTD3
 
 import torch
 import numpy as np
@@ -21,7 +23,7 @@ def main(args=None):
     epoch = 0  # epoch number
     max_steps = 300  # maximum number of steps in single episode
 
-    model = TD3(
+    model = BTD3(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
