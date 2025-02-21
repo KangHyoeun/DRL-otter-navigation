@@ -2,6 +2,10 @@ import irsim
 import numpy as np
 import random
 
+import shapely
+from irsim.lib.handler.geometry_handler import GeometryFactory
+from irsim.world import ObjectBase
+
 
 class SIM_ENV:
     def __init__(self, world_file="robot_world.yaml"):
@@ -34,22 +38,36 @@ class SIM_ENV:
     def reset(self, robot_state=None, robot_goal=None, random_obstacles=True):
         if robot_state is None:
             robot_state = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0], [0]]
-        if robot_goal is None:
-            robot_goal = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0]]
+
         self.env.robot.set_state(
             state=np.array(robot_state),
             init=True,
         )
         self.env.reset()
-        self.env.robot.set_goal(np.array(robot_goal))
+
         if random_obstacles:
             self.env.random_obstacle_position(
                 range_low=[0, 0, -3.14],
                 range_high=[10, 10, 3.14],
-                ids=[i + 1 for i in range(5)],
+                ids=[i + 1 for i in range(7)],
                 non_overlapping=True,
             )
 
+        if robot_goal is None:
+            unique = True
+            while unique:
+                robot_goal = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0]]
+                shape = {"name": "circle", "radius": 0.4}
+                state = [robot_goal[0], robot_goal[1], robot_goal[2]]
+                gf = GeometryFactory.create_geometry(**shape)
+                geometry = gf.step(np.c_[state])
+                unique = any(
+                    [
+                        shapely.intersects(geometry, obj._geometry)
+                        for obj in self.env.obstacle_list
+                    ]
+                )
+        self.env.robot.set_goal(np.array(robot_goal))
         self.robot_goal = self.env.robot.goal
 
         action = [0.0, 0.0]
