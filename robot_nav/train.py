@@ -6,7 +6,6 @@ from models.SAC.SAC import SAC
 from models.HCM.hardcoded_model import HCM
 from models.PPO.PPO import PPO
 
-# from hardcoded_model import HCM
 import torch
 import numpy as np
 from sim import SIM_ENV
