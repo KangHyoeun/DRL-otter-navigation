@@ -114,6 +114,11 @@ class BPG(object):
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
+        max_lin_vel = 0.5,
+        max_ang_vel = 1,
+        goal_reward = 100,
+        distance_norm = 10,
+        time_step = 0.3,
     ):
         av_Q = 0
         max_Q = -inf
@@ -159,10 +164,10 @@ class BPG(object):
             sin = next_state[:, -3]
             theta = torch.atan2(sin, cos)
 
-            turn_steps = theta / (1 * 0.3)
+            turn_steps = theta / (max_ang_vel * time_step)
             full_turn_steps = torch.floor(turn_steps.abs())
             turn_rew = [
-                -1 * discount**step * 1 if step else torch.zeros(1, device=self.device)
+                -1 * discount**step * max_ang_vel if step else torch.zeros(1, device=self.device)
                 for step in full_turn_steps
             ]
             final_turn = turn_steps.abs() - full_turn_steps
@@ -176,15 +181,15 @@ class BPG(object):
 
             full_turn_steps += 1
             distances = next_state[:, -5]
-            distances *= 10
-            distances /= 0.5 * 0.3
+            distances *= distance_norm
+            distances /= max_lin_vel * time_step
             final_steps = torch.ceil(distances) + full_turn_steps
             inter_steps = torch.trunc(distances) + full_turn_steps
             final_discount = torch.tensor(
                 [discount**pw for pw in final_steps], device=self.device
             )
             final_rew = (
-                torch.ones_like(distances, device=self.device) * 100 * final_discount
+                torch.ones_like(distances, device=self.device) * goal_reward * final_discount
             )
 
             max_inter_steps = inter_steps.max()
@@ -198,7 +203,7 @@ class BPG(object):
                 [
                     sum(
                         [
-                            0.5 * discount_exponents[i]
+                            max_lin_vel * discount_exponents[i]
                             for i in range(int(start) + 1, int(steps))
                         ]
                     )
