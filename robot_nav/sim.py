@@ -31,21 +31,24 @@ class SIM_ENV:
 
         return latest_scan, distance, cos, sin, collision, goal, action, reward
 
-    def reset(self):
+    def reset(self, robot_state=None, robot_goal=None, random_obstacles=True):
+        if robot_state is None:
+            robot_state = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0], [0]]
+        if robot_goal is None:
+            robot_goal = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0]]
         self.env.robot.set_state(
-            state=np.array([[random.uniform(1, 9)], [random.uniform(1, 9)], [0], [0]]),
+            state=np.array(robot_state),
             init=True,
         )
         self.env.reset()
-        self.env.robot.set_goal(
-            np.array([[random.uniform(1, 9)], [random.uniform(1, 9)], [0]])
-        )
-        self.env.random_obstacle_position(
-            range_low=[0, 0, -3.14],
-            range_high=[10, 10, 3.14],
-            ids=[i + 1 for i in range(5)],
-            non_overlapping=True,
-        )
+        self.env.robot.set_goal(np.array(robot_goal))
+        if random_obstacles:
+            self.env.random_obstacle_position(
+                range_low=[0, 0, -3.14],
+                range_high=[10, 10, 3.14],
+                ids=[i + 1 for i in range(5)],
+                non_overlapping=True,
+            )
 
         self.robot_goal = self.env.robot.goal
 
