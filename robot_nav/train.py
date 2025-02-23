@@ -20,7 +20,7 @@ def main(args=None):
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # using cuda if it is available, cpu otherwise
     nr_eval_episodes = 10  # how many episodes to use to run evaluation
-    max_epochs = 100  # max number of epochs
+    max_epochs = 60  # max number of epochs
     epoch = 0  # starting epoch number
     episodes_per_epoch = 70  # how many episodes to run in single epoch
     episode = 0  # starting episode number

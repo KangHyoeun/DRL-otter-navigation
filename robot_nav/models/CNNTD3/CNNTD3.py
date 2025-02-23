@@ -214,7 +214,7 @@ class CNNTD3(object):
             # Select the minimal Q value from the 2 calculated values
             target_Q = torch.min(target_Q1, target_Q2)
             av_Q += torch.mean(target_Q)
-            max_Q = max(max_Q, torch.max(target_Q))
+            max_Q = torch.max(max_Q, torch.max(target_Q))
             # Calculate the final Q value from the target network parameters by using Bellman equation
             target_Q = reward + ((1 - done) * discount * target_Q).detach()
 
