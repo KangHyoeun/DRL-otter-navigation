@@ -3,6 +3,7 @@ from models.DDPG.DDPG import DDPG
 from models.SAC.SAC import SAC
 from models.HCM.hardcoded_model import HCM
 from models.PPO.PPO import PPO
+from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 
 import torch
 import numpy as np
@@ -35,7 +36,7 @@ def main(args=None):
     )
     save_every = 10  # save the model every n training cycles
 
-    model = TD3(
+    model = CNNTD3(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,

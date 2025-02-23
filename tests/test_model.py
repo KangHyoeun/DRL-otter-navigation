@@ -1,14 +1,15 @@
 from robot_nav.models.TD3.TD3 import TD3
+from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 from robot_nav.models.SAC.SAC import SAC
 from robot_nav.utils import get_buffer
 from robot_nav.sim import SIM_ENV
 import pytest
 
 
-@pytest.mark.parametrize("model", [TD3, SAC])
-def test_models(model):
+@pytest.mark.parametrize("model, state_dim", [(CNNTD3, 185), (TD3, 10), (SAC, 10)])
+def test_models(model, state_dim):
     test_model = model(
-        state_dim=10,
+        state_dim=state_dim,
         action_dim=2,
         max_action=1,
         device="cpu",
