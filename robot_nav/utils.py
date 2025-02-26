@@ -1,7 +1,9 @@
 from typing import List
 from tqdm import tqdm
 import yaml
-from robot_nav.replay_buffer import ReplayBuffer
+
+from robot_nav.models.RCPG.RCPG import RCPG
+from robot_nav.replay_buffer import ReplayBuffer, RolloutReplayBuffer
 from robot_nav.models.PPO.PPO import PPO
 
 
@@ -91,12 +93,28 @@ def get_buffer(
     pretraining_iterations,
     training_iterations,
     batch_size,
-    buffer_size=5e3,
+    buffer_size=50000,
     random_seed=666,
     file_names=["robot_nav/assets/data.yml"],
 ):
     if isinstance(model, PPO):
         return model.buffer
+
+    if isinstance(model, RCPG):
+        if load_saved_buffer:
+            pretraining = Pretraining(
+                file_names=file_names,
+                model=model,
+                replay_buffer=RolloutReplayBuffer(buffer_size=buffer_size, random_seed=random_seed),
+                reward_function=sim.get_reward,
+            )  # instantiate pre-trainind
+            replay_buffer = (
+                pretraining.load_buffer()
+            )
+        else:
+            replay_buffer = RolloutReplayBuffer(buffer_size=buffer_size, random_seed=random_seed)
+
+        return replay_buffer
 
     if pretrain:
         assert (

@@ -1,3 +1,4 @@
+from robot_nav.models.RCPG.RCPG import RCPG
 from robot_nav.models.TD3.TD3 import TD3
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 from robot_nav.models.SAC.SAC import SAC
@@ -7,7 +8,7 @@ from robot_nav.sim import SIM_ENV
 import pytest
 
 
-@pytest.mark.parametrize("model, state_dim", [(CNNTD3, 185), (TD3, 10), (SAC, 10), (DDPG, 10)])
+@pytest.mark.parametrize("model, state_dim", [(RCPG, 185), (CNNTD3, 185), (TD3, 10), (SAC, 10), (DDPG, 10)])
 def test_models(model, state_dim):
     test_model = model(
         state_dim=state_dim,

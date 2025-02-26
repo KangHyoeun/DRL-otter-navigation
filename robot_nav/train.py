@@ -4,9 +4,12 @@ from models.SAC.SAC import SAC
 from models.HCM.hardcoded_model import HCM
 from models.PPO.PPO import PPO
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
+from collections import deque
 
 import torch
 import numpy as np
+
+from robot_nav.models.RCPG.RCPG import RCPG
 from sim import SIM_ENV
 from utils import get_buffer
 
@@ -15,7 +18,7 @@ def main(args=None):
     """Main training function"""
     action_dim = 2  # number of actions produced by the model
     max_action = 1  # maximum absolute value of output actions
-    state_dim = 25  # number of input values in the neural network (vector length of state input)
+    state_dim = 185  # number of input values in the neural network (vector length of state input)
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # using cuda if it is available, cpu otherwise
@@ -36,7 +39,9 @@ def main(args=None):
     )
     save_every = 10  # save the model every n training cycles
 
-    model = TD3(
+    state_queue = deque(maxlen=5)
+
+    model = RCPG(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
@@ -59,13 +64,20 @@ def main(args=None):
     latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
         lin_velocity=0.0, ang_velocity=0.0
     )  # get the initial step state
-
+    fill_state = True
     while epoch < max_epochs:  # train until max_epochs is reached
         state, terminal = model.prepare_state(
             latest_scan, distance, cos, sin, collision, goal, a
         )  # get state a state representation from returned data from the environment
+        if fill_state:
+            state_queue.clear()
+            for _ in range(5):
+                state_queue.append(state)
+            fill_state = False
+        state_queue.append(state)
 
-        action = model.get_action(np.array(state), True)  # get an action from the model
+
+        action = model.get_action(np.array(state_queue), True)  # get an action from the model
         a_in = [
             (action[0] + 1) / 4,
             action[1],
@@ -84,6 +96,7 @@ def main(args=None):
         if (
             terminal or steps == max_steps
         ):  # reset environment of terminal stat ereached, or max_steps were taken
+            fill_state = True
             latest_scan, distance, cos, sin, collision, goal, a, reward = sim.reset()
             episode += 1
             if episode % train_every_n == 0:
@@ -111,7 +124,9 @@ def evaluate(model, epoch, sim, eval_episodes=10):
     avg_reward = 0.0
     col = 0
     goals = 0
+    state_queue = deque(maxlen=5)
     for _ in range(eval_episodes):
+        fill_state = True
         count = 0
         latest_scan, distance, cos, sin, collision, goal, a, reward = sim.reset()
         done = False
@@ -119,7 +134,13 @@ def evaluate(model, epoch, sim, eval_episodes=10):
             state, terminal = model.prepare_state(
                 latest_scan, distance, cos, sin, collision, goal, a
             )
-            action = model.get_action(np.array(state), False)
+            if fill_state:
+                state_queue.clear()
+                for _ in range(5):
+                    state_queue.append(state)
+                fill_state = False
+            state_queue.append(state)
+            action = model.get_action(np.array(state_queue), False)
             a_in = [(action[0] + 1) / 4, action[1]]
             latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
                 lin_velocity=a_in[0], ang_velocity=a_in[1]
