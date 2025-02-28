@@ -126,22 +126,6 @@ class RolloutReplayBuffer(object):
             -1, 1
         )
 
-        # s2_batch = []
-        # for i in range(len(batch)):
-        #     if idx[i] == len(batch[i]):
-        #         s2 = batch[i]
-        #     else:
-        #         s2 = batch[i][: idx[i] + 1]
-        #     s2 = [v[4] for v in s2]
-        #     s2 = s2[::-1]
-        #     if len(s2) < self.history_len:
-        #         missing = self.history_len - len(s2)
-        #         s2 += [s2[-1]] * missing
-        #     else:
-        #         s2 = s2[:self.history_len]
-        #     s2 = s2[::-1]
-        #     s2_batch.append(s2)
-
         return np.array(s_batch), a_batch, r_batch, t_batch, np.array(s2_batch)
 
     def return_buffer(self):
