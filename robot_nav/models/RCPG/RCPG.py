@@ -9,9 +9,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 class Actor(nn.Module):
-    def __init__(self, action_dim, rnn = 'gru'):
+    def __init__(self, action_dim, rnn="gru"):
         super(Actor, self).__init__()
-        assert rnn in ['lstm', 'gru', 'rnn'], "Unsupported rnn type"
+        assert rnn in ["lstm", "gru", "rnn"], "Unsupported rnn type"
 
         self.cnn1 = nn.Conv1d(1, 4, kernel_size=8, stride=4)
         self.cnn2 = nn.Conv1d(4, 8, kernel_size=8, stride=4)
@@ -20,12 +20,18 @@ class Actor(nn.Module):
         self.goal_embed = nn.Linear(3, 10)
         self.action_embed = nn.Linear(2, 10)
 
-        if rnn == 'lstm':
-            self.rnn = nn.LSTM(input_size=36, hidden_size=36, num_layers=1, batch_first=True)
-        elif rnn == 'gru':
-            self.rnn = nn.GRU(input_size=36, hidden_size=36, num_layers=1, batch_first=True)
+        if rnn == "lstm":
+            self.rnn = nn.LSTM(
+                input_size=36, hidden_size=36, num_layers=1, batch_first=True
+            )
+        elif rnn == "gru":
+            self.rnn = nn.GRU(
+                input_size=36, hidden_size=36, num_layers=1, batch_first=True
+            )
         else:
-            self.rnn = nn.RNN(input_size=36, hidden_size=36, num_layers=1, batch_first=True)
+            self.rnn = nn.RNN(
+                input_size=36, hidden_size=36, num_layers=1, batch_first=True
+            )
 
         self.layer_1 = nn.Linear(36, 400)
         torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
@@ -67,9 +73,9 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, action_dim, rnn = 'gru'):
+    def __init__(self, action_dim, rnn="gru"):
         super(Critic, self).__init__()
-        assert rnn in ['lstm', 'gru', 'rnn'], "Unsupported rnn type"
+        assert rnn in ["lstm", "gru", "rnn"], "Unsupported rnn type"
 
         self.cnn1 = nn.Conv1d(1, 4, kernel_size=8, stride=4)
         self.cnn2 = nn.Conv1d(4, 8, kernel_size=8, stride=4)
@@ -78,12 +84,18 @@ class Critic(nn.Module):
         self.goal_embed = nn.Linear(3, 10)
         self.action_embed = nn.Linear(2, 10)
 
-        if rnn == 'lstm':
-            self.rnn = nn.LSTM(input_size=36, hidden_size=36, num_layers=1, batch_first=True)
-        elif rnn == 'gru':
-            self.rnn = nn.GRU(input_size=36, hidden_size=36, num_layers=1, batch_first=True)
+        if rnn == "lstm":
+            self.rnn = nn.LSTM(
+                input_size=36, hidden_size=36, num_layers=1, batch_first=True
+            )
+        elif rnn == "gru":
+            self.rnn = nn.GRU(
+                input_size=36, hidden_size=36, num_layers=1, batch_first=True
+            )
         else:
-            self.rnn = nn.RNN(input_size=36, hidden_size=36, num_layers=1, batch_first=True)
+            self.rnn = nn.RNN(
+                input_size=36, hidden_size=36, num_layers=1, batch_first=True
+            )
 
         self.layer_1 = nn.Linear(36, 400)
         torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
@@ -159,7 +171,7 @@ class RCPG(object):
         save_directory=Path("robot_nav/models/RCPG/checkpoint"),
         model_name="RCPG",
         load_directory=Path("robot_nav/models/RCPG/checkpoint"),
-        rnn='gru'
+        rnn="gru",
     ):
         # Initialize the Actor network
         self.device = device
@@ -179,10 +191,10 @@ class RCPG(object):
         self.state_dim = state_dim
         self.writer = SummaryWriter()
         self.iter_count = 0
+        self.model_name = model_name + rnn
         if load_model:
-            self.load(filename=model_name, directory=load_directory)
+            self.load(filename=self.model_name, directory=load_directory)
         self.save_every = save_every
-        self.model_name = model_name
         self.save_directory = save_directory
 
     def get_action(self, obs, add_noise):

@@ -96,25 +96,17 @@ def get_buffer(
     buffer_size=50000,
     random_seed=666,
     file_names=["robot_nav/assets/data.yml"],
+    history_len=10,
 ):
     if isinstance(model, PPO):
         return model.buffer
 
     if isinstance(model, RCPG):
-        if load_saved_buffer:
-            pretraining = Pretraining(
-                file_names=file_names,
-                model=model,
-                replay_buffer=RolloutReplayBuffer(buffer_size=buffer_size, random_seed=random_seed),
-                reward_function=sim.get_reward,
-            )  # instantiate pre-trainind
-            replay_buffer = (
-                pretraining.load_buffer()
-            )
-        else:
-            replay_buffer = RolloutReplayBuffer(buffer_size=buffer_size, random_seed=random_seed)
-
-        return replay_buffer
+        replay_buffer = RolloutReplayBuffer(
+            buffer_size=buffer_size, random_seed=random_seed, history_len=history_len
+        )
+    else:
+        replay_buffer = ReplayBuffer(buffer_size=buffer_size, random_seed=random_seed)
 
     if pretrain:
         assert (
@@ -125,9 +117,7 @@ def get_buffer(
         pretraining = Pretraining(
             file_names=file_names,
             model=model,
-            replay_buffer=ReplayBuffer(
-                buffer_size=buffer_size, random_seed=random_seed
-            ),
+            replay_buffer=replay_buffer,
             reward_function=sim.get_reward,
         )  # instantiate pre-trainind
         replay_buffer = (
@@ -140,9 +130,5 @@ def get_buffer(
                 iterations=training_iterations,
                 batch_size=batch_size,
             )  # run pre-training
-    else:
-        replay_buffer = ReplayBuffer(
-            buffer_size=buffer_size, random_seed=random_seed
-        )  # if not experiences are loaded, instantiate an empty buffer
 
     return replay_buffer
