@@ -82,8 +82,10 @@ class BTD3(object):
         save_directory=Path("robot_nav/models/BPG/checkpoint"),
         model_name="BTD3",
         load_directory=Path("robot_nav/models/BPG/checkpoint"),
+        bound_weight = 8
     ):
         # Initialize the Actor network
+        self.bound_weight = bound_weight
         self.device = device
         self.actor = Actor(state_dim, action_dim).to(self.device)
         self.actor_target = Actor(state_dim, action_dim).to(self.device)
@@ -197,7 +199,7 @@ class BTD3(object):
             loss_target_Q = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
                 current_Q2, target_Q
             )
-            max_bound_loss = 10 * (max_bound_loss_Q1 + max_bound_loss_Q2)
+            max_bound_loss = self.bound_weight * (max_bound_loss_Q1 + max_bound_loss_Q2)
             loss = loss_target_Q + max_bound_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()

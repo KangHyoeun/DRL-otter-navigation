@@ -112,8 +112,10 @@ class BCNNPG(object):
         save_directory=Path("robot_nav/models/BPG/checkpoint"),
         model_name="BCNNPG",
         load_directory=Path("robot_nav/models/BPG/checkpoint"),
+        bound_weight=8
     ):
         # Initialize the Actor network
+        self.bound_weight = bound_weight
         self.device = device
         self.actor = Actor(action_dim).to(self.device)
         self.actor_target = Actor(action_dim).to(self.device)
@@ -223,7 +225,7 @@ class BCNNPG(object):
 
             # Calculate the loss between the current Q value and the target Q value
             loss_target_Q = F.mse_loss(current_Q, target_Q)
-            max_bound_loss = 10 * max_bound_loss_Q
+            max_bound_loss = self.bound_weight * max_bound_loss_Q
             loss = loss_target_Q + max_bound_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()
