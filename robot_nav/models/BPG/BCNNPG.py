@@ -1,4 +1,3 @@
-import math
 from pathlib import Path
 
 import numpy as np
@@ -10,10 +9,17 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim):
+    def __init__(self, action_dim):
         super(Actor, self).__init__()
 
-        self.layer_1 = nn.Linear(state_dim, 400)
+        self.cnn1 = nn.Conv1d(1, 4, kernel_size=8, stride=4)
+        self.cnn2 = nn.Conv1d(4, 8, kernel_size=8, stride=4)
+        self.cnn3 = nn.Conv1d(8, 4, kernel_size=4, stride=2)
+
+        self.goal_embed = nn.Linear(3, 10)
+        self.action_embed = nn.Linear(2, 10)
+
+        self.layer_1 = nn.Linear(36, 400)
         torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
         self.layer_2 = nn.Linear(400, 300)
         torch.nn.init.kaiming_uniform_(self.layer_2.weight, nonlinearity="leaky_relu")
@@ -21,6 +27,24 @@ class Actor(nn.Module):
         self.tanh = nn.Tanh()
 
     def forward(self, s):
+        if len(s.shape) == 1:
+            s = s.unsqueeze(0)
+        laser = s[:, :-5]
+        goal = s[:, -5:-2]
+        act = s[:, -2:]
+        laser = laser.unsqueeze(1)
+
+        l = F.leaky_relu(self.cnn1(laser))
+        l = F.leaky_relu(self.cnn2(l))
+        l = F.leaky_relu(self.cnn3(l))
+        l = l.flatten(start_dim=1)
+
+        g = F.leaky_relu(self.goal_embed(goal))
+
+        a = F.leaky_relu(self.action_embed(act))
+
+        s = torch.concat((l, g, a), dim=-1)
+
         s = F.leaky_relu(self.layer_1(s))
         s = F.leaky_relu(self.layer_2(s))
         a = self.tanh(self.layer_3(s))
@@ -28,10 +52,16 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, state_dim, action_dim):
+    def __init__(self, action_dim):
         super(Critic, self).__init__()
+        self.cnn1 = nn.Conv1d(1, 4, kernel_size=8, stride=4)
+        self.cnn2 = nn.Conv1d(4, 8, kernel_size=8, stride=4)
+        self.cnn3 = nn.Conv1d(8, 4, kernel_size=4, stride=2)
 
-        self.layer_1 = nn.Linear(state_dim, 400)
+        self.goal_embed = nn.Linear(3, 10)
+        self.action_embed = nn.Linear(2, 10)
+
+        self.layer_1 = nn.Linear(36, 400)
         torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
         self.layer_2_s = nn.Linear(400, 300)
         torch.nn.init.kaiming_uniform_(self.layer_2_s.weight, nonlinearity="leaky_relu")
@@ -40,36 +70,36 @@ class Critic(nn.Module):
         self.layer_3 = nn.Linear(300, 1)
         torch.nn.init.kaiming_uniform_(self.layer_3.weight, nonlinearity="leaky_relu")
 
-        self.layer_4 = nn.Linear(state_dim, 400)
-        torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
-        self.layer_5_s = nn.Linear(400, 300)
-        torch.nn.init.kaiming_uniform_(self.layer_5_s.weight, nonlinearity="leaky_relu")
-        self.layer_5_a = nn.Linear(action_dim, 300)
-        torch.nn.init.kaiming_uniform_(self.layer_5_a.weight, nonlinearity="leaky_relu")
-        self.layer_6 = nn.Linear(300, 1)
-        torch.nn.init.kaiming_uniform_(self.layer_6.weight, nonlinearity="leaky_relu")
+    def forward(self, s, action):
+        laser = s[:, :-5]
+        goal = s[:, -5:-2]
+        act = s[:, -2:]
+        laser = laser.unsqueeze(1)
 
-    def forward(self, s, a):
+        l = F.leaky_relu(self.cnn1(laser))
+        l = F.leaky_relu(self.cnn2(l))
+        l = F.leaky_relu(self.cnn3(l))
+        l = l.flatten(start_dim=1)
+
+        g = F.leaky_relu(self.goal_embed(goal))
+
+        a = F.leaky_relu(self.action_embed(act))
+
+        s = torch.concat((l, g, a), dim=-1)
+
         s1 = F.leaky_relu(self.layer_1(s))
         self.layer_2_s(s1)
-        self.layer_2_a(a)
+        self.layer_2_a(action)
         s11 = torch.mm(s1, self.layer_2_s.weight.data.t())
-        s12 = torch.mm(a, self.layer_2_a.weight.data.t())
+        s12 = torch.mm(action, self.layer_2_a.weight.data.t())
         s1 = F.leaky_relu(s11 + s12 + self.layer_2_a.bias.data)
-        q1 = self.layer_3(s1)
+        q = self.layer_3(s1)
 
-        s2 = F.leaky_relu(self.layer_4(s))
-        self.layer_5_s(s2)
-        self.layer_5_a(a)
-        s21 = torch.mm(s2, self.layer_5_s.weight.data.t())
-        s22 = torch.mm(a, self.layer_5_a.weight.data.t())
-        s2 = F.leaky_relu(s21 + s22 + self.layer_5_a.bias.data)
-        q2 = self.layer_6(s2)
-        return q1, q2
+        return q
 
 
-# TD3 network
-class BTD3(object):
+# BCNNPG network
+class BCNNPG(object):
     def __init__(
         self,
         state_dim,
@@ -80,19 +110,19 @@ class BTD3(object):
         save_every=0,
         load_model=False,
         save_directory=Path("robot_nav/models/BPG/checkpoint"),
-        model_name="BTD3",
+        model_name="BCNNPG",
         load_directory=Path("robot_nav/models/BPG/checkpoint"),
     ):
         # Initialize the Actor network
         self.device = device
-        self.actor = Actor(state_dim, action_dim).to(self.device)
-        self.actor_target = Actor(state_dim, action_dim).to(self.device)
+        self.actor = Actor(action_dim).to(self.device)
+        self.actor_target = Actor(action_dim).to(self.device)
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.actor_optimizer = torch.optim.Adam(params=self.actor.parameters(), lr=lr)
 
         # Initialize the Critic networks
-        self.critic = Critic(state_dim, action_dim).to(self.device)
-        self.critic_target = Critic(state_dim, action_dim).to(self.device)
+        self.critic = Critic(action_dim).to(self.device)
+        self.critic_target = Critic(action_dim).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = torch.optim.Adam(params=self.critic.parameters(), lr=lr)
 
@@ -122,20 +152,20 @@ class BTD3(object):
 
     # training cycle
     def train(
-        self,
-        replay_buffer,
-        iterations,
-        batch_size,
-        discount=0.99,
-        tau=0.005,
-        policy_noise=0.2,
-        noise_clip=0.5,
-        policy_freq=2,
-        max_lin_vel=0.5,
-        max_ang_vel=1,
-        goal_reward=100,
-        distance_norm=10,
-        time_step=0.3,
+            self,
+            replay_buffer,
+            iterations,
+            batch_size,
+            discount=0.99,
+            tau=0.005,
+            policy_noise=0.2,
+            noise_clip=0.5,
+            policy_freq=2,
+            max_lin_vel=0.5,
+            max_ang_vel=1,
+            goal_reward=100,
+            distance_norm=10,
+            time_step=0.3,
     ):
         av_Q = 0
         max_b = 0
@@ -181,23 +211,19 @@ class BTD3(object):
             # Calculate the final Q value from the target network parameters by using Bellman equation
             target_Q = reward + ((1 - done) * discount * target_Q).detach()
             # Get the Q values of the basis networks with the current parameters
-            current_Q1, current_Q2 = self.critic(state, action)
+            current_Q = self.critic(state, action)
 
-            max_bound = self.get_max_bound(next_state, discount, max_ang_vel, max_lin_vel, time_step, distance_norm, goal_reward,
+            max_bound = self.get_max_bound(next_state, discount, max_ang_vel, max_lin_vel, time_step, distance_norm,
+                                           goal_reward,
                                            reward)
             max_b += max(max_b, torch.max(max_bound))
-            max_bound_loss_Q1 = current_Q1 - max_bound
-            max_bound_loss_Q2 = current_Q2 - max_bound
-            max_bound_loss_Q1[max_bound_loss_Q1 < 0] = 0
-            max_bound_loss_Q2[max_bound_loss_Q2 < 0] = 0
-            max_bound_loss_Q1 = torch.square(max_bound_loss_Q1).mean()
-            max_bound_loss_Q2 = torch.square(max_bound_loss_Q1).mean()
+            max_bound_loss_Q = current_Q - max_bound
+            max_bound_loss_Q[max_bound_loss_Q < 0] = 0
+            max_bound_loss_Q = torch.square(max_bound_loss_Q).mean()
 
             # Calculate the loss between the current Q value and the target Q value
-            loss_target_Q = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
-                current_Q2, target_Q
-            )
-            max_bound_loss = 10 * (max_bound_loss_Q1 + max_bound_loss_Q2)
+            loss_target_Q = F.mse_loss(current_Q, target_Q)
+            max_bound_loss = 10 * max_bound_loss_Q
             loss = loss_target_Q + max_bound_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()
@@ -216,7 +242,7 @@ class BTD3(object):
                 # Use soft update to update the actor-target network parameters by
                 # infusing small amount of current parameters
                 for param, target_param in zip(
-                    self.actor.parameters(), self.actor_target.parameters()
+                        self.actor.parameters(), self.actor_target.parameters()
                 ):
                     target_param.data.copy_(
                         tau * param.data + (1 - tau) * target_param.data
@@ -224,7 +250,7 @@ class BTD3(object):
                 # Use soft update to update the critic-target network parameters by infusing
                 # small amount of current parameters
                 for param, target_param in zip(
-                    self.critic.parameters(), self.critic_target.parameters()
+                        self.critic.parameters(), self.critic_target.parameters()
                 ):
                     target_param.data.copy_(
                         tau * param.data + (1 - tau) * target_param.data
@@ -248,7 +274,8 @@ class BTD3(object):
         if self.save_every > 0 and self.iter_count % self.save_every == 0:
             self.save(filename=self.model_name, directory=self.save_directory)
 
-    def get_max_bound(self, next_state, discount, max_ang_vel, max_lin_vel, time_step, distance_norm, goal_reward, reward):
+    def get_max_bound(self, next_state, discount, max_ang_vel, max_lin_vel, time_step, distance_norm, goal_reward,
+                      reward):
         cos = next_state[:, -4]
         sin = next_state[:, -3]
         theta = torch.atan2(sin, cos)
@@ -338,25 +365,13 @@ class BTD3(object):
 
         inf_mask = np.isinf(latest_scan)
         latest_scan[inf_mask] = 7.0
-
-        max_bins = self.state_dim - 5
-        bin_size = int(np.ceil(len(latest_scan) / max_bins))
-
-        # Initialize the list to store the minimum values of each bin
-        min_values = []
-
-        # Loop through the data and create bins
-        for i in range(0, len(latest_scan), bin_size):
-            # Get the current bin
-            bin = latest_scan[i : i + min(bin_size, len(latest_scan) - i)]
-            # Find the minimum value in the current bin and append it to the min_values list
-            min_values.append(min(bin) / 7)
+        latest_scan /= 7
 
         # Normalize to [0, 1] range
         distance /= 10
         lin_vel = action[0] * 2
         ang_vel = (action[1] + 1) / 2
-        state = min_values + [distance, cos, sin] + [lin_vel, ang_vel]
+        state = latest_scan.tolist() + [distance, cos, sin] + [lin_vel, ang_vel]
 
         assert len(state) == self.state_dim
         terminal = 1 if collision or goal else 0
