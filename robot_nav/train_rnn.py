@@ -1,14 +1,10 @@
-from models.TD3.TD3 import TD3
-from models.DDPG.DDPG import DDPG
-from robot_nav.models.BPG.BTD3 import BTD3
-from robot_nav.models.BPG.BPG import BPG
-from models.SAC.SAC import SAC
-from models.HCM.hardcoded_model import HCM
-from models.PPO.PPO import PPO
-from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
+from robot_nav.models.RCPG.RCPG import RCPG
+from collections import deque
 
 import torch
 import numpy as np
+
+
 from sim import SIM_ENV
 from utils import get_buffer
 
@@ -17,7 +13,7 @@ def main(args=None):
     """Main training function"""
     action_dim = 2  # number of actions produced by the model
     max_action = 1  # maximum absolute value of output actions
-    state_dim = 25  # number of input values in the neural network (vector length of state input)
+    state_dim = 185  # number of input values in the neural network (vector length of state input)
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # using cuda if it is available, cpu otherwise
@@ -29,22 +25,26 @@ def main(args=None):
     train_every_n = 2  # train and update network parameters every n episodes
     training_iterations = 80  # how many batches to use for single training cycle
     batch_size = 64  # batch size for each training iteration
-    max_steps = 10  # maximum number of steps in single episode
+    max_steps = 300  # maximum number of steps in single episode
     steps = 0  # starting step number
     load_saved_buffer = False  # whether to load experiences from assets/data.yml
     pretrain = False  # whether to use the loaded experiences to pre-train the model (load_saved_buffer must be True)
+    history_len = 10
     pretraining_iterations = (
         10  # number of training iterations to run during pre-training
     )
     save_every = 10  # save the model every n training cycles
 
-    model = BPG(
+    state_queue = deque(maxlen=history_len)
+
+    model = RCPG(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         save_every=save_every,
         load_model=False,
+        rnn="gru",
     )  # instantiate a model
 
     sim = SIM_ENV()  # instantiate environment
@@ -61,13 +61,21 @@ def main(args=None):
     latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
         lin_velocity=0.0, ang_velocity=0.0
     )  # get the initial step state
-
+    fill_state = True
     while epoch < max_epochs:  # train until max_epochs is reached
         state, terminal = model.prepare_state(
             latest_scan, distance, cos, sin, collision, goal, a
         )  # get state a state representation from returned data from the environment
+        if fill_state:
+            state_queue.clear()
+            for _ in range(history_len):
+                state_queue.append(state)
+            fill_state = False
+        state_queue.append(state)
 
-        action = model.get_action(np.array(state), True)  # get an action from the model
+        action = model.get_action(
+            np.array(state_queue), True
+        )  # get an action from the model
         a_in = [
             (action[0] + 1) / 4,
             action[1],
@@ -86,6 +94,7 @@ def main(args=None):
         if (
             terminal or steps == max_steps
         ):  # reset environment of terminal stat ereached, or max_steps were taken
+            fill_state = True
             latest_scan, distance, cos, sin, collision, goal, a, reward = sim.reset()
             episode += 1
             if episode % train_every_n == 0:
@@ -104,24 +113,39 @@ def main(args=None):
         ) % episodes_per_epoch == 0:  # if epoch is concluded, run evaluation
             episode = 0
             epoch += 1
-            evaluate(model, epoch, sim, eval_episodes=nr_eval_episodes)
+            evaluate(
+                model,
+                epoch,
+                sim,
+                history_len,
+                max_steps,
+                eval_episodes=nr_eval_episodes,
+            )
 
 
-def evaluate(model, epoch, sim, eval_episodes=10):
+def evaluate(model, epoch, sim, history_len, max_steps, eval_episodes=10):
     print("..............................................")
     print(f"Epoch {epoch}. Evaluating scenarios")
     avg_reward = 0.0
     col = 0
     goals = 0
+    state_queue = deque(maxlen=history_len)
     for _ in range(eval_episodes):
+        fill_state = True
         count = 0
         latest_scan, distance, cos, sin, collision, goal, a, reward = sim.reset()
         done = False
-        while not done and count < 501:
+        while not done and count < max_steps:
             state, terminal = model.prepare_state(
                 latest_scan, distance, cos, sin, collision, goal, a
             )
-            action = model.get_action(np.array(state), False)
+            if fill_state:
+                state_queue.clear()
+                for _ in range(history_len):
+                    state_queue.append(state)
+                fill_state = False
+            state_queue.append(state)
+            action = model.get_action(np.array(state_queue), False)
             a_in = [(action[0] + 1) / 4, action[1]]
             latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
                 lin_velocity=a_in[0], ang_velocity=a_in[1]

@@ -1,11 +1,6 @@
-from models.TD3.TD3 import TD3
-from models.DDPG.DDPG import DDPG
-from models.SAC.SAC import SAC
-from models.HCM.hardcoded_model import HCM
-from models.PPO.PPO import PPO
-from robot_nav.models.BPG.BPG import BPG
-from robot_nav.models.BPG.BTD3 import BTD3
-from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
+from collections import deque
+
+from robot_nav.models.RCPG.RCPG import RCPG
 
 import torch
 import numpy as np
@@ -17,14 +12,14 @@ def main(args=None):
     """Main testing function"""
     action_dim = 2  # number of actions produced by the model
     max_action = 1  # maximum absolute value of output actions
-    state_dim = 25  # number of input values in the neural network (vector length of state input)
+    state_dim = 185  # number of input values in the neural network (vector length of state input)
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # using cuda if it is available, cpu otherwise
     epoch = 0  # epoch number
     max_steps = 300  # maximum number of steps in single episode
 
-    model = BTD3(
+    model = RCPG(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
@@ -48,7 +43,9 @@ def main(args=None):
     total_steps = 0
     col = 0
     goals = 0
+    state_queue = deque(maxlen=5)
     for idx in range(len(robot_poses)):
+        fill_state = True
         count = 0
         latest_scan, distance, cos, sin, collision, goal, a, reward = sim.reset(
             robot_state=robot_poses[idx],
@@ -60,7 +57,13 @@ def main(args=None):
             state, terminal = model.prepare_state(
                 latest_scan, distance, cos, sin, collision, goal, a
             )
-            action = model.get_action(np.array(state), False)
+            if fill_state:
+                state_queue.clear()
+                for _ in range(5):
+                    state_queue.append(state)
+                fill_state = False
+            state_queue.append(state)
+            action = model.get_action(np.array(state_queue), False)
             a_in = [(action[0] + 1) / 4, action[1]]
             latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
                 lin_velocity=a_in[0], ang_velocity=a_in[1]

@@ -42,7 +42,6 @@ class SIM_ENV:
             state=np.array(robot_state),
             init=True,
         )
-        self.env.reset()
 
         if random_obstacles:
             self.env.random_obstacle_position(
@@ -66,7 +65,8 @@ class SIM_ENV:
                         for obj in self.env.obstacle_list
                     ]
                 )
-        self.env.robot.set_goal(np.array(robot_goal))
+        self.env.robot.set_goal(np.array(robot_goal), init=True)
+        self.env.reset()
         self.robot_goal = self.env.robot.goal
 
         action = [0.0, 0.0]

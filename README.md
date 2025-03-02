@@ -26,12 +26,14 @@ and information about the goal point a robot learns to navigate to a specified p
 
 **Sources**
 
-| Package/Model |                          Source                           | 
-|:--------------|:---------------------------------------------------------:| 
-| IR-SIM        |            https://github.com/hanruihua/ir-sim            | 
-| TD3           | https://github.com/reiniscimurs/DRL-Robot-Navigation-ROS2 | 
-| SAC           |        https://github.com/denisyarats/pytorch_sac         | 
-| PPO           |      https://github.com/nikhilbarhate99/PPO-PyTorch       | 
-| DDPG          |                     Updated from TD3                      | 
+| Package/Model |                                           Description                                           |                    Model                           Source | 
+|:--------------|:-----------------------------------------------------------------------------------------------:|----------------------------------------------------------:| 
+| IR-SIM        |                                  Light-weight robot simulator                                   |                       https://github.com/hanruihua/ir-sim | 
+| TD3           |                      Twin Delayed Deep Deterministic Policy Gradient model                      | https://github.com/reiniscimurs/DRL-Robot-Navigation-ROS2 | 
+| SAC           |                                     Soft Actor-Critic model                                     |                https://github.com/denisyarats/pytorch_sac | 
+| PPO           |                               Proximal Policy Optimization model                                |            https://github.com/nikhilbarhate99/PPO-PyTorch | 
+| DDPG          |                            Deep Deterministic Policy Gradient model                             |                                          Updated from TD3 | 
+| CNNTD3        |                          TD3 model with 1D CNN encoding of laser state                          |                                                         - |
+| RCPG          | Recurrent Convolution Policy Gradient - adding recurrence layers (lstm/gru/rnn) to CNNTD3 model |                                                         - |
 
 

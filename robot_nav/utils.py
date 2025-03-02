@@ -1,7 +1,9 @@
 from typing import List
 from tqdm import tqdm
 import yaml
-from robot_nav.replay_buffer import ReplayBuffer
+
+from robot_nav.models.RCPG.RCPG import RCPG
+from robot_nav.replay_buffer import ReplayBuffer, RolloutReplayBuffer
 from robot_nav.models.PPO.PPO import PPO
 
 
@@ -91,12 +93,20 @@ def get_buffer(
     pretraining_iterations,
     training_iterations,
     batch_size,
-    buffer_size=5e3,
+    buffer_size=50000,
     random_seed=666,
     file_names=["robot_nav/assets/data.yml"],
+    history_len=10,
 ):
     if isinstance(model, PPO):
         return model.buffer
+
+    if isinstance(model, RCPG):
+        replay_buffer = RolloutReplayBuffer(
+            buffer_size=buffer_size, random_seed=random_seed, history_len=history_len
+        )
+    else:
+        replay_buffer = ReplayBuffer(buffer_size=buffer_size, random_seed=random_seed)
 
     if pretrain:
         assert (
@@ -107,9 +117,7 @@ def get_buffer(
         pretraining = Pretraining(
             file_names=file_names,
             model=model,
-            replay_buffer=ReplayBuffer(
-                buffer_size=buffer_size, random_seed=random_seed
-            ),
+            replay_buffer=replay_buffer,
             reward_function=sim.get_reward,
         )  # instantiate pre-trainind
         replay_buffer = (
@@ -122,9 +130,5 @@ def get_buffer(
                 iterations=training_iterations,
                 batch_size=batch_size,
             )  # run pre-training
-    else:
-        replay_buffer = ReplayBuffer(
-            buffer_size=buffer_size, random_seed=random_seed
-        )  # if not experiences are loaded, instantiate an empty buffer
 
     return replay_buffer
