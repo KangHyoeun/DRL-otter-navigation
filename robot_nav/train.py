@@ -1,8 +1,8 @@
-from models.TD3.TD3 import TD3
-from models.DDPG.DDPG import DDPG
-from models.SAC.SAC import SAC
-from models.HCM.hardcoded_model import HCM
-from models.PPO.PPO import PPO
+from robot_nav.models.TD3.TD3 import TD3
+from robot_nav.models.DDPG.DDPG import DDPG
+from robot_nav.models.SAC.SAC import SAC
+from robot_nav.models.HCM.hardcoded_model import HCM
+from robot_nav.models.PPO.PPO import PPO
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 
 import torch
@@ -36,7 +36,7 @@ def main(args=None):
     )
     save_every = 10  # save the model every n training cycles
 
-    model = TD3(
+    model = PPO(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
