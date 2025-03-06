@@ -38,14 +38,15 @@ def main(args=None):
     )
     save_every = 5  # save the model every n training cycles
 
-    model = TD3(
+    model = BPG(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="TD3exp1"
+        model_name="BPGw4exp1",
+        bound_weight=4,
     )  # instantiate a model
 
     sim = SIM_ENV()  # instantiate environment

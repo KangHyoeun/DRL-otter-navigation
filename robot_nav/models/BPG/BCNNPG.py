@@ -112,7 +112,7 @@ class BCNNPG(object):
         save_directory=Path("robot_nav/models/BPG/checkpoint"),
         model_name="BCNNPG",
         load_directory=Path("robot_nav/models/BPG/checkpoint"),
-        bound_weight=8
+        bound_weight=8,
     ):
         # Initialize the Actor network
         self.bound_weight = bound_weight
@@ -154,20 +154,20 @@ class BCNNPG(object):
 
     # training cycle
     def train(
-            self,
-            replay_buffer,
-            iterations,
-            batch_size,
-            discount=0.99,
-            tau=0.005,
-            policy_noise=0.2,
-            noise_clip=0.5,
-            policy_freq=2,
-            max_lin_vel=0.5,
-            max_ang_vel=1,
-            goal_reward=100,
-            distance_norm=10,
-            time_step=0.3,
+        self,
+        replay_buffer,
+        iterations,
+        batch_size,
+        discount=0.99,
+        tau=0.005,
+        policy_noise=0.2,
+        noise_clip=0.5,
+        policy_freq=2,
+        max_lin_vel=0.5,
+        max_ang_vel=1,
+        goal_reward=100,
+        distance_norm=10,
+        time_step=0.3,
     ):
         av_Q = 0
         max_b = 0
@@ -215,9 +215,16 @@ class BCNNPG(object):
             # Get the Q values of the basis networks with the current parameters
             current_Q = self.critic(state, action)
 
-            max_bound = self.get_max_bound(next_state, discount, max_ang_vel, max_lin_vel, time_step, distance_norm,
-                                           goal_reward,
-                                           reward)
+            max_bound = self.get_max_bound(
+                next_state,
+                discount,
+                max_ang_vel,
+                max_lin_vel,
+                time_step,
+                distance_norm,
+                goal_reward,
+                reward,
+            )
             max_b += max(max_b, torch.max(max_bound))
             max_bound_loss_Q = current_Q - max_bound
             max_bound_loss_Q[max_bound_loss_Q < 0] = 0
@@ -244,7 +251,7 @@ class BCNNPG(object):
                 # Use soft update to update the actor-target network parameters by
                 # infusing small amount of current parameters
                 for param, target_param in zip(
-                        self.actor.parameters(), self.actor_target.parameters()
+                    self.actor.parameters(), self.actor_target.parameters()
                 ):
                     target_param.data.copy_(
                         tau * param.data + (1 - tau) * target_param.data
@@ -252,7 +259,7 @@ class BCNNPG(object):
                 # Use soft update to update the critic-target network parameters by infusing
                 # small amount of current parameters
                 for param, target_param in zip(
-                        self.critic.parameters(), self.critic_target.parameters()
+                    self.critic.parameters(), self.critic_target.parameters()
                 ):
                     target_param.data.copy_(
                         tau * param.data + (1 - tau) * target_param.data
@@ -276,8 +283,17 @@ class BCNNPG(object):
         if self.save_every > 0 and self.iter_count % self.save_every == 0:
             self.save(filename=self.model_name, directory=self.save_directory)
 
-    def get_max_bound(self, next_state, discount, max_ang_vel, max_lin_vel, time_step, distance_norm, goal_reward,
-                      reward):
+    def get_max_bound(
+        self,
+        next_state,
+        discount,
+        max_ang_vel,
+        max_lin_vel,
+        time_step,
+        distance_norm,
+        goal_reward,
+        reward,
+    ):
         cos = next_state[:, -4]
         sin = next_state[:, -3]
         theta = torch.atan2(sin, cos)
@@ -285,7 +301,11 @@ class BCNNPG(object):
         turn_steps = theta / (max_ang_vel * time_step)
         full_turn_steps = torch.floor(turn_steps.abs())
         turn_rew = [
-            -1 * discount ** step * max_ang_vel if step else torch.zeros(1, device=self.device)
+            (
+                -1 * discount**step * max_ang_vel
+                if step
+                else torch.zeros(1, device=self.device)
+            )
             for step in full_turn_steps
         ]
         final_turn = turn_steps.abs() - full_turn_steps
@@ -304,10 +324,12 @@ class BCNNPG(object):
         final_steps = torch.ceil(distances) + full_turn_steps
         inter_steps = torch.trunc(distances) + full_turn_steps
         final_discount = torch.tensor(
-            [discount ** pw for pw in final_steps], device=self.device
+            [discount**pw for pw in final_steps], device=self.device
         )
         final_rew = (
-                torch.ones_like(distances, device=self.device) * goal_reward * final_discount
+            torch.ones_like(distances, device=self.device)
+            * goal_reward
+            * final_discount
         )
 
         max_inter_steps = inter_steps.max()
@@ -315,7 +337,7 @@ class BCNNPG(object):
             1, max_inter_steps + 1, dtype=torch.float32, device=self.device
         )
         discount_exponents = torch.tensor(
-            [discount ** e for e in exponents], device=self.device
+            [discount**e for e in exponents], device=self.device
         )
         inter_rew = torch.tensor(
             [

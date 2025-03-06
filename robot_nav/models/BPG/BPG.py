@@ -65,7 +65,7 @@ class BPG(object):
         save_directory=Path("robot_nav/models/BPG/checkpoint"),
         model_name="BPG",
         load_directory=Path("robot_nav/models/BPG/checkpoint"),
-        bound_weight=8
+        bound_weight=8,
     ):
         # Initialize the Actor network
         self.bound_weight = bound_weight
@@ -116,11 +116,11 @@ class BPG(object):
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
-        max_lin_vel = 0.5,
-        max_ang_vel = 1,
-        goal_reward = 100,
-        distance_norm = 10,
-        time_step = 0.3,
+        max_lin_vel=0.5,
+        max_ang_vel=1,
+        goal_reward=100,
+        distance_norm=10,
+        time_step=0.3,
     ):
         av_Q = 0
         max_b = 0
@@ -166,9 +166,18 @@ class BPG(object):
             # Get the Q values of the basis networks with the current parameters
             current_Q = self.critic(state, action)
 
-            max_bound = self.get_max_bound(next_state, discount, max_ang_vel, max_lin_vel, time_step, distance_norm, goal_reward,
-                                           reward)
-            max_b += max(max_b, torch.max(max_bound))
+            max_bound = self.get_max_bound(
+                next_state,
+                discount,
+                max_ang_vel,
+                max_lin_vel,
+                time_step,
+                distance_norm,
+                goal_reward,
+                reward,
+                done,
+            )
+            max_b = max(max_b, torch.max(max_bound))
             max_bound_loss_Q = current_Q - max_bound
             max_bound_loss_Q[max_bound_loss_Q < 0] = 0
             max_bound_loss_Q = torch.square(max_bound_loss_Q).mean()
@@ -228,7 +237,18 @@ class BPG(object):
         if self.save_every > 0 and self.iter_count % self.save_every == 0:
             self.save(filename=self.model_name, directory=self.save_directory)
 
-    def get_max_bound(self, next_state, discount, max_ang_vel, max_lin_vel, time_step, distance_norm, goal_reward, reward):
+    def get_max_bound(
+        self,
+        next_state,
+        discount,
+        max_ang_vel,
+        max_lin_vel,
+        time_step,
+        distance_norm,
+        goal_reward,
+        reward,
+        done,
+    ):
         cos = next_state[:, -4]
         sin = next_state[:, -3]
         theta = torch.atan2(sin, cos)
@@ -236,7 +256,11 @@ class BPG(object):
         turn_steps = theta / (max_ang_vel * time_step)
         full_turn_steps = torch.floor(turn_steps.abs())
         turn_rew = [
-            -1 * discount ** step * max_ang_vel if step else torch.zeros(1, device=self.device)
+            (
+                -1 * discount**step * max_ang_vel
+                if step
+                else torch.zeros(1, device=self.device)
+            )
             for step in full_turn_steps
         ]
         final_turn = turn_steps.abs() - full_turn_steps
@@ -255,10 +279,12 @@ class BPG(object):
         final_steps = torch.ceil(distances) + full_turn_steps
         inter_steps = torch.trunc(distances) + full_turn_steps
         final_discount = torch.tensor(
-            [discount ** pw for pw in final_steps], device=self.device
+            [discount**pw for pw in final_steps], device=self.device
         )
         final_rew = (
-                torch.ones_like(distances, device=self.device) * goal_reward * final_discount
+            torch.ones_like(distances, device=self.device)
+            * goal_reward
+            * final_discount
         )
 
         max_inter_steps = inter_steps.max()
@@ -266,7 +292,7 @@ class BPG(object):
             1, max_inter_steps + 1, dtype=torch.float32, device=self.device
         )
         discount_exponents = torch.tensor(
-            [discount ** e for e in exponents], device=self.device
+            [discount**e for e in exponents], device=self.device
         )
         inter_rew = torch.tensor(
             [
@@ -281,7 +307,7 @@ class BPG(object):
             device=self.device,
         )
         max_future_rew = full_turn_rew + final_rew + inter_rew
-        max_bound = reward + max_future_rew.view(-1, 1)
+        max_bound = reward + (1 - done) * max_future_rew.view(-1, 1)
         return max_bound
 
     def save(self, filename, directory):

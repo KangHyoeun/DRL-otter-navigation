@@ -11,7 +11,8 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "model, state_dim", [(RCPG, 185), (CNNTD3, 185), (TD3, 10), (SAC, 10), (DDPG, 10)]
+    "model, state_dim",
+    [(BPG, 10), (RCPG, 185), (CNNTD3, 185), (TD3, 10), (SAC, 10), (DDPG, 10)],
 )
 def test_models(model, state_dim):
     test_model = model(
