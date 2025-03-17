@@ -7,14 +7,14 @@ from irsim.lib.handler.geometry_handler import GeometryFactory
 
 
 class SIM_ENV:
-    def __init__(self, world_file="robot_world.yaml"):
-        self.env = irsim.make(world_file)
+    def __init__(self, world_file="robot_world.yaml", disable_plotting=False):
+        self.env = irsim.make(world_file, disable_all_plot=disable_plotting)
         robot_info = self.env.get_robot_info(0)
         self.robot_goal = robot_info.goal
 
     def step(self, lin_velocity=0.0, ang_velocity=0.1):
         self.env.step(action_id=0, action=np.array([[lin_velocity], [ang_velocity]]))
-        self.env.render()
+        self.env.render(interval=0.01)
 
         scan = self.env.get_lidar_scan()
         latest_scan = scan["ranges"]
@@ -34,7 +34,13 @@ class SIM_ENV:
 
         return latest_scan, distance, cos, sin, collision, goal, action, reward
 
-    def reset(self, robot_state=None, robot_goal=None, random_obstacles=True):
+    def reset(
+        self,
+        robot_state=None,
+        robot_goal=None,
+        random_obstacles=True,
+        random_obstacle_ids=None,
+    ):
         if robot_state is None:
             robot_state = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0], [0]]
 
@@ -44,10 +50,12 @@ class SIM_ENV:
         )
 
         if random_obstacles:
+            if random_obstacle_ids is None:
+                random_obstacle_ids = [i + 1 for i in range(7)]
             self.env.random_obstacle_position(
                 range_low=[0, 0, -3.14],
                 range_high=[10, 10, 3.14],
-                ids=[i + 1 for i in range(7)],
+                ids=random_obstacle_ids,
                 non_overlapping=True,
             )
 

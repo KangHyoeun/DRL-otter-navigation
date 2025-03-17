@@ -189,7 +189,7 @@ class RCPG(object):
         self.action_dim = action_dim
         self.max_action = max_action
         self.state_dim = state_dim
-        self.writer = SummaryWriter()
+        self.writer = SummaryWriter(comment=model_name)
         self.iter_count = 0
         self.model_name = model_name + rnn
         if load_model:

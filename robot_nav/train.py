@@ -1,10 +1,11 @@
-from models.TD3.TD3 import TD3
-from models.DDPG.DDPG import DDPG
+from robot_nav.models.TD3.TD3 import TD3
+from robot_nav.models.DDPG.DDPG import DDPG
 from robot_nav.models.BPG.BTD3 import BTD3
 from robot_nav.models.BPG.BPG import BPG
-from models.SAC.SAC import SAC
-from models.HCM.hardcoded_model import HCM
-from models.PPO.PPO import PPO
+from robot_nav.models.BPG.BCNNPG import BCNNPG
+from robot_nav.models.SAC.SAC import SAC
+from robot_nav.models.HCM.hardcoded_model import HCM
+from robot_nav.models.PPO.PPO import PPO
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 
 import torch
@@ -38,18 +39,18 @@ def main(args=None):
     )
     save_every = 5  # save the model every n training cycles
 
-    model = BPG(
+    model = BCNNPG(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="BPGw4exp1",
-        bound_weight=4,
+        model_name="BCNNPGw025exp1",
+        bound_weight=0.25,
     )  # instantiate a model
 
-    sim = SIM_ENV()  # instantiate environment
+    sim = SIM_ENV(disable_plotting=True)  # instantiate environment
     replay_buffer = get_buffer(
         model,
         sim,
