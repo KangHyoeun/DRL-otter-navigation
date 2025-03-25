@@ -8,8 +8,8 @@ from irsim.world import ObjectBase
 
 
 class SIM_ENV:
-    def __init__(self, world_file="robot_world.yaml"):
-        self.env = irsim.make(world_file)
+    def __init__(self, world_file="robot_world.yaml", disable_plotting=False):
+        self.env = irsim.make(world_file, disable_all_plot=disable_plotting)
         robot_info = self.env.get_robot_info(0)
         self.robot_goal = robot_info.goal
 
