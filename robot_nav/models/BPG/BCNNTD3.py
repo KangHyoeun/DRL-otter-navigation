@@ -186,6 +186,7 @@ class BCNNTD3(object):
         time_step=0.3,
     ):
         av_Q = 0
+        av_bound = 0
         max_b = 0
         max_Q = -inf
         av_loss = 0
@@ -242,12 +243,11 @@ class BCNNTD3(object):
                 reward,
             )
             max_b += max(max_b, torch.max(max_bound))
-            max_bound_loss_Q1 = current_Q1 - max_bound
-            max_bound_loss_Q2 = current_Q2 - max_bound
-            max_bound_loss_Q1[max_bound_loss_Q1 < 0] = 0
-            max_bound_loss_Q2[max_bound_loss_Q2 < 0] = 0
-            max_bound_loss_Q1 = torch.square(max_bound_loss_Q1).mean()
-            max_bound_loss_Q2 = torch.square(max_bound_loss_Q1).mean()
+            av_bound += torch.mean(max_bound)
+            max_bound_Q1 = torch.min(current_Q1, max_bound)
+            max_bound_loss_Q1 = F.mse_loss(current_Q1, max_bound_Q1)
+            max_bound_Q2 = torch.min(current_Q2, max_bound)
+            max_bound_loss_Q2 = F.mse_loss(current_Q2, max_bound_Q2)
 
             # Calculate the loss between the current Q value and the target Q value
             loss_target_Q = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
@@ -264,6 +264,7 @@ class BCNNTD3(object):
                 # Maximize the actor output value by performing gradient descent on negative Q values
                 # (essentially perform gradient ascent)
                 actor_grad, _ = self.critic(state, self.actor(state))
+                actor_grad = torch.min(actor_grad, max_bound)
                 actor_grad = -actor_grad.mean()
                 self.actor_optimizer.zero_grad()
                 actor_grad.backward()
@@ -299,6 +300,9 @@ class BCNNTD3(object):
             "train/av_max_bound_loss", av_max_bound_loss / iterations, self.iter_count
         )
         self.writer.add_scalar("train/avg_Q", av_Q / iterations, self.iter_count)
+        self.writer.add_scalar(
+            "train/avg_bound", av_bound / iterations, self.iter_count
+        )
         self.writer.add_scalar("train/max_b", max_b, self.iter_count)
         self.writer.add_scalar("train/max_Q", max_Q, self.iter_count)
         if self.save_every > 0 and self.iter_count % self.save_every == 0:

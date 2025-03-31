@@ -123,6 +123,7 @@ class BPG(object):
         time_step=0.3,
     ):
         av_Q = 0
+        av_bound = 0
         max_b = 0
         max_Q = -inf
         av_loss = 0
@@ -178,11 +179,10 @@ class BPG(object):
                 done,
             )
             max_b = max(max_b, torch.max(max_bound))
-            max_bound_loss_Q = current_Q - max_bound
-            max_bound_loss_Q[max_bound_loss_Q < 0] = 0
-            max_bound_loss_Q = torch.square(max_bound_loss_Q).mean()
-            max_bound_loss = max_bound_loss_Q
+            av_bound += torch.mean(max_bound)
 
+            max_bound_Q = torch.min(current_Q, max_bound)
+            max_bound_loss = F.mse_loss(current_Q, max_bound_Q)
             # Calculate the loss between the current Q value and the target Q value
             loss_target_Q = F.mse_loss(current_Q, target_Q)
 
@@ -197,6 +197,7 @@ class BPG(object):
                 # Maximize the actor output value by performing gradient descent on negative Q values
                 # (essentially perform gradient ascent)
                 actor_grad = self.critic(state, self.actor(state))
+                actor_grad = torch.min(actor_grad, max_bound)
                 actor_grad = -actor_grad.mean()
                 self.actor_optimizer.zero_grad()
                 actor_grad.backward()
@@ -232,6 +233,9 @@ class BPG(object):
             "train/av_max_bound_loss", av_max_bound_loss / iterations, self.iter_count
         )
         self.writer.add_scalar("train/avg_Q", av_Q / iterations, self.iter_count)
+        self.writer.add_scalar(
+            "train/avg_bound", av_bound / iterations, self.iter_count
+        )
         self.writer.add_scalar("train/max_b", max_b, self.iter_count)
         self.writer.add_scalar("train/max_Q", max_Q, self.iter_count)
         if self.save_every > 0 and self.iter_count % self.save_every == 0:

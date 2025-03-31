@@ -39,14 +39,14 @@ def main(args=None):
     )
     save_every = 5  # save the model every n training cycles
 
-    model = BCNNPG(
+    model = BPG(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="BCNNPGw025exp1",
+        model_name="tryBPGw025exp5",
         bound_weight=0.25,
     )  # instantiate a model
 
