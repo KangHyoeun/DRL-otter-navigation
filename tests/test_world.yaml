@@ -3,7 +3,7 @@ world:
   width: 10   # the height of the world
   step_time: 1.0
   sample_time: 1.0
-  collision_mode: 'react'
+  collision_mode: 'reactive'
 
 robot:
   - kinematics: {name: 'diff'}
