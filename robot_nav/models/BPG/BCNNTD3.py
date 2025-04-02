@@ -247,16 +247,16 @@ class BCNNTD3(object):
             )
             max_b += max(max_b, torch.max(max_bound))
             av_bound += torch.mean(max_bound)
-            max_bound_Q1 = torch.min(current_Q1, max_bound)
-            max_bound_loss_Q1 = F.mse_loss(current_Q1, max_bound_Q1)
-            max_bound_Q2 = torch.min(current_Q2, max_bound)
-            max_bound_loss_Q2 = F.mse_loss(current_Q2, max_bound_Q2)
+            max_excess_Q1 = F.relu(current_Q1 - max_bound)
+            max_bound_loss_Q1 = (max_excess_Q1 ** 2).mean()
+            max_excess_Q2 = F.relu(current_Q2 - max_bound)
+            max_bound_loss_Q2 = (max_excess_Q2 ** 2).mean()
+            max_bound_loss = self.bound_weight * (max_bound_loss_Q1 + max_bound_loss_Q2)
 
             # Calculate the loss between the current Q value and the target Q value
             loss_target_Q = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
                 current_Q2, target_Q
             )
-            max_bound_loss = self.bound_weight * (max_bound_loss_Q1 + max_bound_loss_Q2)
             loss = loss_target_Q + max_bound_loss
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()

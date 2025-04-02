@@ -183,8 +183,8 @@ class BPG(object):
             max_b = max(max_b, torch.max(max_bound))
             av_bound += torch.mean(max_bound)
 
-            max_bound_Q = torch.min(current_Q, max_bound)
-            max_bound_loss = F.mse_loss(current_Q, max_bound_Q)
+            max_excess_Q = F.relu(current_Q - max_bound)
+            max_bound_loss = (max_excess_Q ** 2).mean()
             # Calculate the loss between the current Q value and the target Q value
             loss_target_Q = F.mse_loss(current_Q, target_Q)
 
