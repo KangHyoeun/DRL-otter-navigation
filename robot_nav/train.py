@@ -4,6 +4,7 @@ from robot_nav.models.BPG.BTD3 import BTD3
 from robot_nav.models.BPG.BPG import BPG
 from robot_nav.models.BPG.BCNNPG import BCNNPG
 from robot_nav.models.SAC.SAC import SAC
+from robot_nav.models.SAC.BSAC import BSAC
 from robot_nav.models.HCM.hardcoded_model import HCM
 from robot_nav.models.PPO.PPO import PPO
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
@@ -18,7 +19,7 @@ def main(args=None):
     """Main training function"""
     action_dim = 2  # number of actions produced by the model
     max_action = 1  # maximum absolute value of output actions
-    state_dim = 185  # number of input values in the neural network (vector length of state input)
+    state_dim = 25  # number of input values in the neural network (vector length of state input)
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # using cuda if it is available, cpu otherwise
@@ -39,15 +40,15 @@ def main(args=None):
     )
     save_every = 5  # save the model every n training cycles
 
-    model = BPG(
+    model = BSAC(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="tryBPGw025exp5",
-        bound_weight=0.25,
+        model_name="BSACw025exp1",
+        # bound_weight=0.0,
     )  # instantiate a model
 
     sim = SIM_ENV(disable_plotting=True)  # instantiate environment

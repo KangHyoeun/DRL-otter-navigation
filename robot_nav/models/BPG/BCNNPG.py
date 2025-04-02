@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from numpy import inf
 from torch.utils.tensorboard import SummaryWriter
+from robot_nav.utils import get_max_bound
 
 
 class Actor(nn.Module):
@@ -214,7 +215,7 @@ class BCNNPG(object):
             # Get the Q values of the basis networks with the current parameters
             current_Q = self.critic(state, action)
 
-            max_bound = self.get_max_bound(
+            max_bound = get_max_bound(
                 next_state,
                 discount,
                 max_ang_vel,
@@ -224,6 +225,7 @@ class BCNNPG(object):
                 goal_reward,
                 reward,
                 done,
+                self.device,
             )
             max_b = max(max_b, torch.max(max_bound))
             av_bound += torch.mean(max_bound)
@@ -287,79 +289,6 @@ class BCNNPG(object):
         self.writer.add_scalar("train/max_Q", max_Q, self.iter_count)
         if self.save_every > 0 and self.iter_count % self.save_every == 0:
             self.save(filename=self.model_name, directory=self.save_directory)
-
-    def get_max_bound(
-        self,
-        next_state,
-        discount,
-        max_ang_vel,
-        max_lin_vel,
-        time_step,
-        distance_norm,
-        goal_reward,
-        reward,
-        done,
-    ):
-        cos = next_state[:, -4]
-        sin = next_state[:, -3]
-        theta = torch.atan2(sin, cos)
-
-        turn_steps = theta / (max_ang_vel * time_step)
-        full_turn_steps = torch.floor(turn_steps.abs())
-        turn_rew = [
-            (
-                -1 * discount**step * max_ang_vel
-                if step
-                else torch.zeros(1, device=self.device)
-            )
-            for step in full_turn_steps
-        ]
-        final_turn = turn_steps.abs() - full_turn_steps
-        final_turn_rew = [
-            -1 * discount ** (full_turn_steps[i] + 1) * final_turn[i]
-            for i in range(len(final_turn))
-        ]
-        full_turn_rew = torch.tensor(turn_rew, device=self.device) + torch.tensor(
-            final_turn_rew, device=self.device
-        )
-
-        full_turn_steps += 1
-        distances = next_state[:, -5]
-        distances *= distance_norm
-        distances /= max_lin_vel * time_step
-        final_steps = torch.ceil(distances) + full_turn_steps
-        inter_steps = torch.trunc(distances) + full_turn_steps
-        final_discount = torch.tensor(
-            [discount**pw for pw in final_steps], device=self.device
-        )
-        final_rew = (
-            torch.ones_like(distances, device=self.device)
-            * goal_reward
-            * final_discount
-        )
-
-        max_inter_steps = inter_steps.max()
-        exponents = torch.arange(
-            1, max_inter_steps + 1, dtype=torch.float32, device=self.device
-        )
-        discount_exponents = torch.tensor(
-            [discount**e for e in exponents], device=self.device
-        )
-        inter_rew = torch.tensor(
-            [
-                sum(
-                    [
-                        max_lin_vel * discount_exponents[i]
-                        for i in range(int(start) + 1, int(steps))
-                    ]
-                )
-                for start, steps in zip(full_turn_steps, inter_steps)
-            ],
-            device=self.device,
-        )
-        max_future_rew = full_turn_rew + final_rew + inter_rew
-        max_bound = reward + (1 - done) * max_future_rew.view(-1, 1)
-        return max_bound
 
     def save(self, filename, directory):
         Path(directory).mkdir(parents=True, exist_ok=True)

@@ -6,6 +6,7 @@ from robot_nav.models.PPO.PPO import PPO
 from robot_nav.models.BPG.BPG import BPG
 from robot_nav.models.BPG.BTD3 import BTD3
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
+from robot_nav.models.SAC.BSAC import BSAC
 import statistics
 import numpy as np
 import tqdm
@@ -19,7 +20,7 @@ def main(args=None):
     """Main testing function"""
     action_dim = 2  # number of actions produced by the model
     max_action = 1  # maximum absolute value of output actions
-    state_dim = 185  # number of input values in the neural network (vector length of state input)
+    state_dim = 25  # number of input values in the neural network (vector length of state input)
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # using cuda if it is available, cpu otherwise
@@ -27,17 +28,17 @@ def main(args=None):
     max_steps = 300  # maximum number of steps in single episode
     test_scenarios = 1000
 
-    model = BPG(
+    model = BSAC(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         load_model=True,
-        model_name="tryBPGw025exp5",
+        model_name="BSACw025exp1",
     )  # instantiate a model
 
     sim = SIM_ENV(
-        world_file="eval_world.yaml", disable_plotting=True
+        world_file="eval_world.yaml", disable_plotting=False
     )  # instantiate environment
 
     print("..............................................")

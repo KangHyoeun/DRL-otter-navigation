@@ -1,6 +1,7 @@
 from typing import List
 from tqdm import tqdm
 import yaml
+import torch
 
 from robot_nav.models.RCPG.RCPG import RCPG
 from robot_nav.replay_buffer import ReplayBuffer, RolloutReplayBuffer
@@ -132,3 +133,56 @@ def get_buffer(
             )  # run pre-training
 
     return replay_buffer
+
+
+def get_max_bound(
+    next_state,
+    discount,
+    max_ang_vel,
+    max_lin_vel,
+    time_step,
+    distance_norm,
+    goal_reward,
+    reward,
+    done,
+    device,
+):
+    next_state = next_state.clone()  # Prevents in-place modifications
+    reward = reward.clone()  # Ensures original reward is unchanged
+    done = done.clone()
+    cos = next_state[:, -4]
+    sin = next_state[:, -3]
+    theta = torch.atan2(sin, cos)
+
+    # Compute turning steps
+    turn_steps = theta.abs() / (max_ang_vel * time_step)
+    full_turn_steps = torch.floor(turn_steps)
+    turn_rew = -max_ang_vel * discount**full_turn_steps
+    turn_rew[full_turn_steps == 0] = 0  # Handle zero case
+    final_turn_rew = -(discount ** (full_turn_steps + 1)) * (
+        turn_steps - full_turn_steps
+    )
+    full_turn_rew = turn_rew + final_turn_rew
+
+    # Compute distance-based steps
+    full_turn_steps += 1  # Account for the final turn step
+    distances = (next_state[:, -5] * distance_norm) / (max_lin_vel * time_step)
+    final_steps = torch.ceil(distances) + full_turn_steps
+    inter_steps = torch.trunc(distances) + full_turn_steps
+
+    final_rew = goal_reward * discount**final_steps
+
+    # Compute intermediate rewards using a sum of discounted steps
+    max_inter_steps = inter_steps.max().int().item()
+    discount_exponents = discount ** torch.arange(1, max_inter_steps + 1, device=device)
+    inter_rew = torch.stack(
+        [
+            (max_lin_vel * discount_exponents[int(start) + 1 : int(steps)]).sum()
+            for start, steps in zip(full_turn_steps, inter_steps)
+        ]
+    )
+    # Compute final max bound
+    max_bound = reward + (1 - done) * (full_turn_rew + final_rew + inter_rew).view(
+        -1, 1
+    )
+    return max_bound
