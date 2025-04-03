@@ -7,6 +7,7 @@ from robot_nav.models.BPG.BPG import BPG
 from robot_nav.models.BPG.BTD3 import BTD3
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 from robot_nav.models.SAC.BSAC import BSAC
+from robot_nav.models.SAC.BSA1C import BSA1C
 import statistics
 import numpy as np
 import tqdm
@@ -28,13 +29,13 @@ def main(args=None):
     max_steps = 300  # maximum number of steps in single episode
     test_scenarios = 1000
 
-    model = BSAC(
+    model = BSA1C(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         load_model=True,
-        model_name="BSACw025exp1",
+        model_name="BSA1Cw025exp1",
     )  # instantiate a model
 
     sim = SIM_ENV(

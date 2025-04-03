@@ -5,6 +5,7 @@ from robot_nav.models.BPG.BPG import BPG
 from robot_nav.models.BPG.BCNNPG import BCNNPG
 from robot_nav.models.SAC.SAC import SAC
 from robot_nav.models.SAC.BSAC import BSAC
+from robot_nav.models.SAC.BSA1C import BSA1C
 from robot_nav.models.HCM.hardcoded_model import HCM
 from robot_nav.models.PPO.PPO import PPO
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
@@ -40,14 +41,14 @@ def main(args=None):
     )
     save_every = 5  # save the model every n training cycles
 
-    model = BSAC(
+    model = BSA1C(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="BSACw025exp1",
+        model_name="BSA1Cw025exp1",
         # bound_weight=0.0,
     )  # instantiate a model
 
