@@ -4,7 +4,6 @@ import random
 
 import shapely
 from irsim.lib.handler.geometry_handler import GeometryFactory
-from irsim.world import ObjectBase
 
 
 class SIM_ENV:
@@ -35,7 +34,13 @@ class SIM_ENV:
 
         return latest_scan, distance, cos, sin, collision, goal, action, reward
 
-    def reset(self, robot_state=None, robot_goal=None, random_obstacles=True):
+    def reset(
+        self,
+        robot_state=None,
+        robot_goal=None,
+        random_obstacles=True,
+        random_obstacle_ids=None,
+    ):
         if robot_state is None:
             robot_state = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0], [0]]
 
@@ -45,10 +50,12 @@ class SIM_ENV:
         )
 
         if random_obstacles:
+            if random_obstacle_ids is None:
+                random_obstacle_ids = [i + 1 for i in range(7)]
             self.env.random_obstacle_position(
                 range_low=[0, 0, -3.14],
                 range_high=[10, 10, 3.14],
-                ids=[i + 1 for i in range(7)],
+                ids=random_obstacle_ids,
                 non_overlapping=True,
             )
 
@@ -82,7 +89,6 @@ class SIM_ENV:
         vec2 = vec2 / np.linalg.norm(vec2)
         cos = np.dot(vec1, vec2)
         sin = vec1[0] * vec2[1] - vec1[1] * vec2[0]
-
         return cos, sin
 
     @staticmethod

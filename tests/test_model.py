@@ -9,7 +9,14 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "model, state_dim", [(RCPG, 185), (CNNTD3, 185), (TD3, 10), (SAC, 10), (DDPG, 10)]
+    "model, state_dim",
+    [
+        (RCPG, 185),
+        (CNNTD3, 185),
+        (TD3, 10),
+        (SAC, 10),
+        (DDPG, 10),
+    ],
 )
 def test_models(model, state_dim):
     test_model = model(
@@ -19,6 +26,46 @@ def test_models(model, state_dim):
         device="cpu",
         save_every=0,
         load_model=False,
+    )  # instantiate a model
+
+    sim = SIM_ENV
+
+    prefilled_buffer = get_buffer(
+        model=test_model,
+        sim=sim,
+        load_saved_buffer=True,
+        pretrain=False,
+        pretraining_iterations=0,
+        training_iterations=0,
+        batch_size=0,
+        buffer_size=100,
+        file_names=["test_data.yml"],
+    )
+
+    test_model.train(
+        replay_buffer=prefilled_buffer,
+        iterations=2,
+        batch_size=8,
+    )
+
+
+@pytest.mark.parametrize(
+    "model, state_dim",
+    [
+        (CNNTD3, 185),
+        (TD3, 10),
+        (DDPG, 10),
+    ],
+)
+def test_max_bound_models(model, state_dim):
+    test_model = model(
+        state_dim=state_dim,
+        action_dim=2,
+        max_action=1,
+        device="cpu",
+        save_every=0,
+        load_model=False,
+        use_max_bound=True,
     )  # instantiate a model
 
     sim = SIM_ENV

@@ -25,17 +25,17 @@ def main(args=None):
     max_steps = 300  # maximum number of steps in single episode
     test_scenarios = 1000
 
-    model = DDPG(
+    model = SAC(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         load_model=True,
-        model_name="DDPGexp5",
+        model_name="SAC",
     )  # instantiate a model
 
     sim = SIM_ENV(
-        world_file="eval_world.yaml", disable_plotting=True
+        world_file="eval_world.yaml", disable_plotting=False
     )  # instantiate environment
 
     print("..............................................")

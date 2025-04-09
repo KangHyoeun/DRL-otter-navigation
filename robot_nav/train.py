@@ -34,7 +34,7 @@ def main(args=None):
     pretraining_iterations = (
         10  # number of training iterations to run during pre-training
     )
-    save_every = 10  # save the model every n training cycles
+    save_every = 5  # save the model every n training cycles
 
     model = TD3(
         state_dim=state_dim,
@@ -43,9 +43,10 @@ def main(args=None):
         device=device,
         save_every=save_every,
         load_model=False,
+        model_name="TD3",
     )  # instantiate a model
 
-    sim = SIM_ENV()  # instantiate environment
+    sim = SIM_ENV(disable_plotting=False)  # instantiate environment
     replay_buffer = get_buffer(
         model,
         sim,

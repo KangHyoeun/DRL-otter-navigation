@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from numpy import inf
 from torch.utils.tensorboard import SummaryWriter
 
+from robot_nav.utils import get_max_bound
+
 
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim):
@@ -65,6 +67,8 @@ class DDPG(object):
         save_directory=Path("robot_nav/models/DDPG/checkpoint"),
         model_name="DDPG",
         load_directory=Path("robot_nav/models/DDPG/checkpoint"),
+        use_max_bound=False,
+        bound_weight=0.25,
     ):
         # Initialize the Actor network
         self.device = device
@@ -82,13 +86,15 @@ class DDPG(object):
         self.action_dim = action_dim
         self.max_action = max_action
         self.state_dim = state_dim
-        self.writer = SummaryWriter()
+        self.writer = SummaryWriter(comment=model_name)
         self.iter_count = 0
         if load_model:
             self.load(filename=model_name, directory=load_directory)
         self.save_every = save_every
         self.model_name = model_name
         self.save_directory = save_directory
+        self.use_max_bound = use_max_bound
+        self.bound_weight = bound_weight
 
     def get_action(self, obs, add_noise):
         if add_noise:
@@ -114,6 +120,11 @@ class DDPG(object):
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
+        max_lin_vel=0.5,
+        max_ang_vel=1,
+        goal_reward=100,
+        distance_norm=10,
+        time_step=0.3,
     ):
         av_Q = 0
         max_Q = -inf
@@ -158,6 +169,24 @@ class DDPG(object):
 
             # Calculate the loss between the current Q value and the target Q value
             loss = F.mse_loss(current_Q, target_Q)
+
+            if self.use_max_bound:
+                max_bound = get_max_bound(
+                    next_state,
+                    discount,
+                    max_ang_vel,
+                    max_lin_vel,
+                    time_step,
+                    distance_norm,
+                    goal_reward,
+                    reward,
+                    done,
+                    self.device,
+                )
+                max_excess_Q = F.relu(current_Q - max_bound)
+                max_bound_loss = (max_excess_Q**2).mean()
+                # Add loss for Q values exceeding maximum possible upper bound
+                loss += self.bound_weight * max_bound_loss
 
             # Perform the gradient descent
             self.critic_optimizer.zero_grad()

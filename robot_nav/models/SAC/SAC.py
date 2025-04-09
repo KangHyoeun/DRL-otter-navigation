@@ -112,7 +112,7 @@ class SAC(object):
         self.actor.train(True)
         self.critic.train(True)
         self.step = 0
-        self.writer = SummaryWriter()
+        self.writer = SummaryWriter(comment=model_name)
 
     def save(self, filename, directory):
         Path(directory).mkdir(parents=True, exist_ok=True)

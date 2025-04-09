@@ -22,12 +22,13 @@ def main(args=None):
     epoch = 0  # epoch number
     max_steps = 300  # maximum number of steps in single episode
 
-    model = CNNTD3(
+    model = TD3(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         load_model=True,
+        model_name="TD3",
     )  # instantiate a model
 
     sim = SIM_ENV(world_file="eval_world.yaml")  # instantiate environment

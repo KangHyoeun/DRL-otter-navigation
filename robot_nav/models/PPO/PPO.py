@@ -157,7 +157,7 @@ class PPO:
             self.load(filename=model_name, directory=load_directory)
 
         self.MseLoss = nn.MSELoss()
-        self.writer = SummaryWriter()
+        self.writer = SummaryWriter(comment=model_name)
 
     def set_action_std(self, new_action_std):
         self.action_std = new_action_std
