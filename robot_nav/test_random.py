@@ -3,11 +3,7 @@ from robot_nav.models.DDPG.DDPG import DDPG
 from robot_nav.models.SAC.SAC import SAC
 from robot_nav.models.HCM.hardcoded_model import HCM
 from robot_nav.models.PPO.PPO import PPO
-from robot_nav.models.BPG.BPG import BPG
-from robot_nav.models.BPG.BTD3 import BTD3
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
-from robot_nav.models.SAC.BSAC import BSAC
-from robot_nav.models.SAC.BSA1C import BSA1C
 import statistics
 import numpy as np
 import tqdm
@@ -29,7 +25,7 @@ def main(args=None):
     max_steps = 300  # maximum number of steps in single episode
     test_scenarios = 1000
 
-    model = BSA1C(
+    model = SAC(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,

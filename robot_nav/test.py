@@ -3,8 +3,6 @@ from models.DDPG.DDPG import DDPG
 from models.SAC.SAC import SAC
 from models.HCM.hardcoded_model import HCM
 from models.PPO.PPO import PPO
-from robot_nav.models.BPG.BPG import BPG
-from robot_nav.models.BPG.BTD3 import BTD3
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 
 import torch

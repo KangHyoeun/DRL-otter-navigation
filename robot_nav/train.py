@@ -1,11 +1,6 @@
 from robot_nav.models.TD3.TD3 import TD3
 from robot_nav.models.DDPG.DDPG import DDPG
-from robot_nav.models.BPG.BTD3 import BTD3
-from robot_nav.models.BPG.BPG import BPG
-from robot_nav.models.BPG.BCNNPG import BCNNPG
 from robot_nav.models.SAC.SAC import SAC
-from robot_nav.models.SAC.BSAC import BSAC
-from robot_nav.models.SAC.BSA1C import BSA1C
 from robot_nav.models.HCM.hardcoded_model import HCM
 from robot_nav.models.PPO.PPO import PPO
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
@@ -41,18 +36,17 @@ def main(args=None):
     )
     save_every = 5  # save the model every n training cycles
 
-    model = BSA1C(
+    model = TD3(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="BSA1Cw025exp1",
-        # bound_weight=0.0,
+        model_name="TD3",
     )  # instantiate a model
 
-    sim = SIM_ENV(disable_plotting=True)  # instantiate environment
+    sim = SIM_ENV(disable_plotting=False)  # instantiate environment
     replay_buffer = get_buffer(
         model,
         sim,
