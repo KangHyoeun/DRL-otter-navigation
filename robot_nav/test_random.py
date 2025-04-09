@@ -31,7 +31,7 @@ def main(args=None):
         max_action=max_action,
         device=device,
         load_model=True,
-        model_name="BSA1Cw025exp1",
+        model_name="SAC",
     )  # instantiate a model
 
     sim = SIM_ENV(

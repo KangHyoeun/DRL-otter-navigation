@@ -14,7 +14,7 @@ class SIM_ENV:
 
     def step(self, lin_velocity=0.0, ang_velocity=0.1):
         self.env.step(action_id=0, action=np.array([[lin_velocity], [ang_velocity]]))
-        self.env.render(interval=0.01)
+        self.env.render()
 
         scan = self.env.get_lidar_scan()
         latest_scan = scan["ranges"]
