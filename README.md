@@ -26,14 +26,29 @@ and information about the goal point a robot learns to navigate to a specified p
 
 **Sources**
 
-| Package/Model |                                           Description                                           |                    Model                           Source | 
-|:--------------|:-----------------------------------------------------------------------------------------------:|----------------------------------------------------------:| 
-| IR-SIM        |                                  Light-weight robot simulator                                   |                       https://github.com/hanruihua/ir-sim | 
-| TD3           |                      Twin Delayed Deep Deterministic Policy Gradient model                      | https://github.com/reiniscimurs/DRL-Robot-Navigation-ROS2 | 
-| SAC           |                                     Soft Actor-Critic model                                     |                https://github.com/denisyarats/pytorch_sac | 
-| PPO           |                               Proximal Policy Optimization model                                |            https://github.com/nikhilbarhate99/PPO-PyTorch | 
-| DDPG          |                            Deep Deterministic Policy Gradient model                             |                                          Updated from TD3 | 
-| CNNTD3        |                          TD3 model with 1D CNN encoding of laser state                          |                                                         - |
-| RCPG          | Recurrent Convolution Policy Gradient - adding recurrence layers (lstm/gru/rnn) to CNNTD3 model |                                                         - |
+| Package |                                           Description                                           |                              Source | 
+|:--------|:-----------------------------------------------------------------------------------------------:|------------------------------------:| 
+| IR-SIM  |                                  Light-weight robot simulator                                   | https://github.com/hanruihua/ir-sim |
 
+**Models**
+
+| Model     |                                           Description                                           |                    Model                           Source | 
+|:----------|:-----------------------------------------------------------------------------------------------:|----------------------------------------------------------:|
+| TD3       |                      Twin Delayed Deep Deterministic Policy Gradient model                      | https://github.com/reiniscimurs/DRL-Robot-Navigation-ROS2 | 
+| SAC       |                                     Soft Actor-Critic model                                     |                https://github.com/denisyarats/pytorch_sac | 
+| PPO       |                               Proximal Policy Optimization model                                |            https://github.com/nikhilbarhate99/PPO-PyTorch | 
+| DDPG      |                            Deep Deterministic Policy Gradient model                             |                                          Updated from TD3 | 
+| CNNTD3    |                          TD3 model with 1D CNN encoding of laser state                          |                                                         - |
+| RCPG      | Recurrent Convolution Policy Gradient - adding recurrence layers (lstm/gru/rnn) to CNNTD3 model |                                                         - |
+
+**Max Upper Bound Models**
+
+Models that support the additional loss of Q values exceeding the maximal possible Q value in the episode. Q values that exceed this upper bound are used to calculate a loss for the model. This helps to control the overestimation of Q values in off-policy actor-critic networks.
+To enable max upper bound loss set `use_max_bound = True` when initializing a model.
+
+| Model  |  
+|:-------|
+| TD3    | 
+| DDPG   | 
+| CNNTD3 |
 
