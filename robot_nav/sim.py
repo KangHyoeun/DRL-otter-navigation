@@ -7,12 +7,41 @@ from irsim.lib.handler.geometry_handler import GeometryFactory
 
 
 class SIM_ENV:
+    """
+    A simulation environment interface for robot navigation using IRSim.
+
+    This class wraps around the IRSim environment and provides methods for stepping,
+    resetting, and interacting with a mobile robot, including reward computation.
+
+    Attributes:
+        env (object): The simulation environment instance from IRSim.
+        robot_goal (np.ndarray): The goal position of the robot.
+    """
+
     def __init__(self, world_file="robot_world.yaml", disable_plotting=False):
+        """
+        Initialize the simulation environment.
+
+        Args:
+            world_file (str): Path to the world configuration YAML file.
+            disable_plotting (bool): If True, disables rendering and plotting.
+        """
         self.env = irsim.make(world_file, disable_all_plot=disable_plotting)
         robot_info = self.env.get_robot_info(0)
         self.robot_goal = robot_info.goal
 
     def step(self, lin_velocity=0.0, ang_velocity=0.1):
+        """
+        Perform one step in the simulation using the given control commands.
+
+        Args:
+            lin_velocity (float): Linear velocity to apply to the robot.
+            ang_velocity (float): Angular velocity to apply to the robot.
+
+        Returns:
+            tuple: Contains the latest LIDAR scan, distance to goal, cosine and sine of angle to goal,
+                   collision flag, goal reached flag, applied action, and computed reward.
+        """
         self.env.step(action_id=0, action=np.array([[lin_velocity], [ang_velocity]]))
         self.env.render()
 
@@ -41,6 +70,19 @@ class SIM_ENV:
         random_obstacles=True,
         random_obstacle_ids=None,
     ):
+        """
+        Reset the simulation environment, optionally setting robot and obstacle states.
+
+        Args:
+            robot_state (list or None): Initial state of the robot as a list of [x, y, theta, speed].
+            robot_goal (list or None): Goal state for the robot.
+            random_obstacles (bool): Whether to randomly reposition obstacles.
+            random_obstacle_ids (list or None): Specific obstacle IDs to randomize.
+
+        Returns:
+            tuple: Initial observation after reset, including LIDAR scan, distance, cos/sin,
+                   and reward-related flags and values.
+        """
         if robot_state is None:
             robot_state = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0], [0]]
 
@@ -85,6 +127,16 @@ class SIM_ENV:
 
     @staticmethod
     def cossin(vec1, vec2):
+        """
+        Compute the cosine and sine of the angle between two 2D vectors.
+
+        Args:
+            vec1 (list): First 2D vector.
+            vec2 (list): Second 2D vector.
+
+        Returns:
+            tuple: (cosine, sine) of the angle between the vectors.
+        """
         vec1 = vec1 / np.linalg.norm(vec1)
         vec2 = vec2 / np.linalg.norm(vec2)
         cos = np.dot(vec1, vec2)
@@ -93,6 +145,18 @@ class SIM_ENV:
 
     @staticmethod
     def get_reward(goal, collision, action, laser_scan):
+        """
+        Calculate the reward for the current step.
+
+        Args:
+            goal (bool): Whether the goal has been reached.
+            collision (bool): Whether a collision occurred.
+            action (list): The action taken [linear velocity, angular velocity].
+            laser_scan (list): The LIDAR scan readings.
+
+        Returns:
+            float: Computed reward for the current state.
+        """
         if goal:
             return 100.0
         elif collision:
