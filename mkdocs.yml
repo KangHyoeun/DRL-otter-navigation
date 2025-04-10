@@ -1,0 +1,21 @@
+extra:
+  python_path:
+  - ./robot_nav
+nav:
+- Home: index.md
+- API Reference:
+    Robot Navigation: api/robot_nav.md
+    Models:
+      - DDPG: api/models/DDPG.md
+      - TD3: api/models/TD3.md
+      - CNNTD3: api/models/cnntd3.md
+      - RCPG: api/models/RCPG.md
+      - HCM: api/models/HCM.md
+      - PPO: api/models/PPO.md
+      - SAC: api/models/SAC.md
+plugins:
+- search
+- mkdocstrings
+site_name: DRL-robot-navigation-IR-SIM
+theme:
+  name: material

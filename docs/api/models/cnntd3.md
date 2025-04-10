@@ -1,4 +1,4 @@
-# API Reference
+# CNNTD3
 
 ::: robot_nav.models.CNNTD3.CNNTD3
     options:
