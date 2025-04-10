@@ -11,6 +11,23 @@ from robot_nav.utils import get_max_bound
 
 
 class Actor(nn.Module):
+    """
+    Actor network for the DDPG algorithm.
+
+    This network maps input states to actions using a fully connected feedforward architecture.
+    It uses Leaky ReLU activations in the hidden layers and a tanh activation at the output
+    to ensure the output actions are in the range [-1, 1].
+
+    Architecture:
+        - Linear(state_dim → 400) + LeakyReLU
+        - Linear(400 → 300) + LeakyReLU
+        - Linear(300 → action_dim) + Tanh
+
+    Args:
+        state_dim (int): Dimension of the input state.
+        action_dim (int): Dimension of the output action space.
+    """
+
     def __init__(self, state_dim, action_dim):
         super(Actor, self).__init__()
 
@@ -22,6 +39,15 @@ class Actor(nn.Module):
         self.tanh = nn.Tanh()
 
     def forward(self, s):
+        """
+        Forward pass of the actor network.
+
+        Args:
+            s (torch.Tensor): Input state tensor of shape (batch_size, state_dim).
+
+        Returns:
+            torch.Tensor: Output action tensor of shape (batch_size, action_dim), scaled to [-1, 1].
+        """
         s = F.leaky_relu(self.layer_1(s))
         s = F.leaky_relu(self.layer_2(s))
         a = self.tanh(self.layer_3(s))
@@ -29,6 +55,25 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
+    """
+    Critic network for the DDPG algorithm.
+
+    This network evaluates the Q-value of a given state-action pair. It separately processes
+    state and action inputs through linear layers, combines them, and passes the result through
+    another linear layer to predict a scalar Q-value.
+
+    Architecture:
+        - Linear(state_dim → 400) + LeakyReLU
+        - Linear(400 → 300) [state branch]
+        - Linear(action_dim → 300) [action branch]
+        - Combine both branches, apply LeakyReLU
+        - Linear(300 → 1) for Q-value output
+
+    Args:
+        state_dim (int): Dimension of the input state.
+        action_dim (int): Dimension of the input action.
+    """
+
     def __init__(self, state_dim, action_dim):
         super(Critic, self).__init__()
 
@@ -42,6 +87,16 @@ class Critic(nn.Module):
         torch.nn.init.kaiming_uniform_(self.layer_3.weight, nonlinearity="leaky_relu")
 
     def forward(self, s, a):
+        """
+        Forward pass of the critic network.
+
+        Args:
+            s (torch.Tensor): State tensor of shape (batch_size, state_dim).
+            a (torch.Tensor): Action tensor of shape (batch_size, action_dim).
+
+        Returns:
+            torch.Tensor: Q-value tensor of shape (batch_size, 1).
+        """
         s1 = F.leaky_relu(self.layer_1(s))
         self.layer_2_s(s1)
         self.layer_2_a(a)
@@ -55,6 +110,28 @@ class Critic(nn.Module):
 
 # DDPG network
 class DDPG(object):
+    """
+    Deep Deterministic Policy Gradient (DDPG) agent implementation.
+
+    This class encapsulates the actor-critic learning framework using DDPG, which is suitable
+    for continuous action spaces. It supports training, action selection, model saving/loading,
+    and state preparation for a reinforcement learning agent, specifically designed for robot navigation.
+
+    Args:
+        state_dim (int): Dimension of the input state.
+        action_dim (int): Dimension of the action space.
+        max_action (float): Maximum action value allowed.
+        device (torch.device): Computation device (CPU or GPU).
+        lr (float): Learning rate for the optimizers. Default is 1e-4.
+        save_every (int): Frequency of saving the model in training iterations. 0 means no saving. Default is 0.
+        load_model (bool): Flag indicating whether to load a model from disk. Default is False.
+        save_directory (Path): Directory to save the model checkpoints. Default is "robot_nav/models/DDPG/checkpoint".
+        model_name (str): Name used for saving and TensorBoard logging. Default is "DDPG".
+        load_directory (Path): Directory to load model checkpoints from. Default is "robot_nav/models/DDPG/checkpoint".
+        use_max_bound (bool): Whether to enforce a learned upper bound on the Q-value. Default is False.
+        bound_weight (float): Weight of the upper bound loss penalty. Default is 0.25.
+    """
+
     def __init__(
         self,
         state_dim,
@@ -97,6 +174,16 @@ class DDPG(object):
         self.bound_weight = bound_weight
 
     def get_action(self, obs, add_noise):
+        """
+        Selects an action based on the observation.
+
+        Args:
+            obs (np.array): The current state observation.
+            add_noise (bool): Whether to add exploration noise to the action.
+
+        Returns:
+            np.array: Action selected by the actor network.
+        """
         if add_noise:
             return (
                 self.act(obs) + np.random.normal(0, 0.2, size=self.action_dim)
@@ -105,7 +192,15 @@ class DDPG(object):
             return self.act(obs)
 
     def act(self, state):
-        # Function to get the action from the actor
+        """
+        Computes the action for a given state using the actor network.
+
+        Args:
+            state (np.array): Environment state.
+
+        Returns:
+            np.array: Action values as output by the actor network.
+        """
         state = torch.Tensor(state).to(self.device)
         return self.actor(state).cpu().data.numpy().flatten()
 
@@ -126,6 +221,24 @@ class DDPG(object):
         distance_norm=10,
         time_step=0.3,
     ):
+        """
+        Trains the actor and critic networks using a replay buffer and soft target updates.
+
+        Args:
+            replay_buffer (object): Replay buffer object with a sample_batch method.
+            iterations (int): Number of training iterations.
+            batch_size (int): Size of each training batch.
+            discount (float): Discount factor for future rewards.
+            tau (float): Soft update factor for target networks.
+            policy_noise (float): Standard deviation of noise added to target policy.
+            noise_clip (float): Maximum value to clip target policy noise.
+            policy_freq (int): Frequency of actor and target updates.
+            max_lin_vel (float): Maximum linear velocity, used in Q-bound calculation.
+            max_ang_vel (float): Maximum angular velocity, used in Q-bound calculation.
+            goal_reward (float): Reward given upon reaching goal.
+            distance_norm (float): Distance normalization factor.
+            time_step (float): Time step used in max bound calculation.
+        """
         av_Q = 0
         max_Q = -inf
         av_loss = 0
@@ -229,6 +342,13 @@ class DDPG(object):
             self.save(filename=self.model_name, directory=self.save_directory)
 
     def save(self, filename, directory):
+        """
+        Saves the model parameters to disk.
+
+        Args:
+            filename (str): Base filename for saving the model components.
+            directory (str or Path): Directory where the model files will be saved.
+        """
         Path(directory).mkdir(parents=True, exist_ok=True)
         torch.save(self.actor.state_dict(), "%s/%s_actor.pth" % (directory, filename))
         torch.save(
@@ -242,6 +362,13 @@ class DDPG(object):
         )
 
     def load(self, filename, directory):
+        """
+        Loads model parameters from disk.
+
+        Args:
+            filename (str): Base filename used for loading model components.
+            directory (str or Path): Directory to load the model files from.
+        """
         self.actor.load_state_dict(
             torch.load("%s/%s_actor.pth" % (directory, filename))
         )
@@ -257,7 +384,21 @@ class DDPG(object):
         print(f"Loaded weights from: {directory}")
 
     def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action):
-        # update the returned data from ROS into a form used for learning in the current model
+        """
+        Processes raw sensor input and additional information into a normalized state representation.
+
+        Args:
+            latest_scan (list or np.array): Raw LIDAR or laser scan data.
+            distance (float): Distance to the goal.
+            cos (float): Cosine of the angle to the goal.
+            sin (float): Sine of the angle to the goal.
+            collision (bool): Whether a collision has occurred.
+            goal (bool): Whether the goal has been reached.
+            action (list or np.array): The action taken in the previous step.
+
+        Returns:
+            tuple: (state vector, terminal flag)
+        """
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)
