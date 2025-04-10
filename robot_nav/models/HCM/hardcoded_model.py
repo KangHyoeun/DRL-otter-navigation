@@ -7,6 +7,22 @@ import yaml
 
 
 class HCM(object):
+    """
+    A class representing a hybrid control model (HCM) for a robot's navigation system.
+
+    This class contains methods for generating actions based on the robot's state, preparing state
+    representations, training (placeholder method), saving/loading models, and logging experiences.
+
+    Attributes:
+        max_action (float): The maximum possible action value.
+        state_dim (int): The dimension of the state representation.
+        writer (SummaryWriter): The writer for logging purposes.
+        iterator (int): A counter for tracking sample addition.
+        save_samples (bool): Whether to save the samples to a file.
+        max_added_samples (int): Maximum number of samples to be added to the saved file.
+        file_location (str): The file location for saving samples.
+    """
+
     def __init__(
         self,
         state_dim,
@@ -15,6 +31,16 @@ class HCM(object):
         max_added_samples=10_000,
         file_location="robot_nav/assets/data.yml",
     ):
+        """
+        Initialize the HCM class with the provided configuration.
+
+        Args:
+            state_dim (int): The dimension of the state space.
+            max_action (float): The maximum possible action value.
+            save_samples (bool): Whether to save samples to a file.
+            max_added_samples (int): The maximum number of samples to save.
+            file_location (str): The file path for saving samples.
+        """
         self.max_action = max_action
         self.state_dim = state_dim
         self.writer = SummaryWriter()
@@ -24,6 +50,17 @@ class HCM(object):
         self.file_location = file_location
 
     def get_action(self, state, add_noise):
+        """
+        Compute the action to be taken based on the current state of the robot.
+
+        Args:
+            state (list): The current state of the robot, including LIDAR scan, distance,
+                          and other relevant features.
+            add_noise (bool): Whether to add noise to the action for exploration.
+
+        Returns:
+            list: The computed action [linear velocity, angular velocity].
+        """
         sin = state[-3]
         cos = state[-4]
         angle = atan2(sin, cos)
@@ -58,15 +95,66 @@ class HCM(object):
         noise_clip=0.5,
         policy_freq=2,
     ):
+        """
+        Placeholder method for training the hybrid control model.
+
+        Args:
+            replay_buffer (object): The replay buffer containing past experiences.
+            iterations (int): The number of training iterations.
+            batch_size (int): The batch size for training.
+            discount (float): The discount factor for future rewards.
+            tau (float): The soft update parameter for target networks.
+            policy_noise (float): The noise added to actions during training.
+            noise_clip (float): The clipping value for action noise.
+            policy_freq (int): The frequency at which to update the policy.
+
+        Note:
+            This method is a placeholder and currently does nothing.
+        """
         pass
 
     def save(self, filename, directory):
+        """
+        Placeholder method to save the current model state to a file.
+
+        Args:
+            filename (str): The name of the file where the model will be saved.
+            directory (str): The directory where the file will be stored.
+
+        Note:
+            This method is a placeholder and currently does nothing.
+        """
         pass
 
     def load(self, filename, directory):
+        """
+        Placeholder method to load a model state from a file.
+
+        Args:
+            filename (str): The name of the file to load the model from.
+            directory (str): The directory where the model file is stored.
+
+        Note:
+            This method is a placeholder and currently does nothing.
+        """
         pass
 
     def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action):
+        """
+        Prepare the state representation for the model based on the current environment.
+
+        Args:
+            latest_scan (list): The LIDAR scan data.
+            distance (float): The distance to the goal.
+            cos (float): The cosine of the robot's orientation angle.
+            sin (float): The sine of the robot's orientation angle.
+            collision (bool): Whether a collision occurred.
+            goal (bool): Whether the goal has been reached.
+            action (list): The action taken by the robot, [linear velocity, angular velocity].
+
+        Returns:
+            tuple: A tuple containing the prepared state and a terminal flag (1 if terminal state, 0 otherwise).
+        """
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)
