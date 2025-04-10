@@ -7,9 +7,23 @@ from pathlib import Path
 from numpy import inf
 
 
-################################## PPO Policy ##################################
 class RolloutBuffer:
+    """
+    Buffer to store rollout data (transitions) for PPO training.
+
+    Attributes:
+        actions (list): Actions taken by the agent.
+        states (list): States observed by the agent.
+        logprobs (list): Log probabilities of the actions.
+        rewards (list): Rewards received from the environment.
+        state_values (list): Value estimates for the states.
+        is_terminals (list): Flags indicating episode termination.
+    """
+
     def __init__(self):
+        """
+        Initialize empty lists to store buffer elements.
+        """
         self.actions = []
         self.states = []
         self.logprobs = []
@@ -18,6 +32,9 @@ class RolloutBuffer:
         self.is_terminals = []
 
     def clear(self):
+        """
+        Clear all stored data from the buffer.
+        """
         del self.actions[:]
         del self.states[:]
         del self.logprobs[:]
@@ -26,13 +43,44 @@ class RolloutBuffer:
         del self.is_terminals[:]
 
     def add(self, state, action, reward, terminal, next_state):
+        """
+        Add a transition to the buffer. (Partial implementation.)
+
+        Args:
+            state: The current observed state.
+            action: The action taken.
+            reward: The reward received after taking the action.
+            terminal (bool): Whether the episode terminated.
+            next_state: The resulting state after taking the action.
+        """
         self.states.append(state)
         self.rewards.append(reward)
         self.is_terminals.append(terminal)
 
 
 class ActorCritic(nn.Module):
+    """
+    Actor-Critic neural network model for PPO.
+
+    Attributes:
+        actor (nn.Sequential): Policy network (actor) to output action mean.
+        critic (nn.Sequential): Value network (critic) to predict state values.
+        action_var (Tensor): Diagonal covariance matrix for action distribution.
+        device (str): Device used for computation ('cpu' or 'cuda').
+        max_action (float): Clipping range for action values.
+    """
+
     def __init__(self, state_dim, action_dim, action_std_init, max_action, device):
+        """
+        Initialize the Actor and Critic networks.
+
+        Args:
+            state_dim (int): Dimension of the input state.
+            action_dim (int): Dimension of the action space.
+            action_std_init (float): Initial standard deviation of the action distribution.
+            max_action (float): Maximum value allowed for an action (clipping range).
+            device (str): Device to run the model on.
+        """
         super(ActorCritic, self).__init__()
 
         self.device = device
@@ -61,15 +109,36 @@ class ActorCritic(nn.Module):
         )
 
     def set_action_std(self, new_action_std):
+        """
+        Set a new standard deviation for the action distribution.
+
+        Args:
+            new_action_std (float): New standard deviation.
+        """
         self.action_var = torch.full(
             (self.action_dim,), new_action_std * new_action_std
         ).to(self.device)
 
     def forward(self):
+        """
+        Forward method is not implemented, as it's unused directly.
+
+        Raises:
+            NotImplementedError: Always raised when called.
+        """
         raise NotImplementedError
 
     def act(self, state, sample):
+        """
+        Compute an action, its log probability, and the state value.
 
+        Args:
+            state (Tensor): Input state tensor.
+            sample (bool): Whether to sample from the action distribution or use mean.
+
+        Returns:
+            Tuple[Tensor, Tensor, Tensor]: Sampled (or mean) action, log probability, and state value.
+        """
         action_mean = self.actor(state)
         cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
         dist = MultivariateNormal(action_mean, cov_mat)
@@ -86,7 +155,16 @@ class ActorCritic(nn.Module):
         return action.detach(), action_logprob.detach(), state_val.detach()
 
     def evaluate(self, state, action):
+        """
+        Evaluate action log probabilities, entropy, and state values for given states and actions.
 
+        Args:
+            state (Tensor): Batch of states.
+            action (Tensor): Batch of actions.
+
+        Returns:
+            Tuple[Tensor, Tensor, Tensor]: Action log probabilities, state values, and distribution entropy.
+        """
         action_mean = self.actor(state)
 
         action_var = self.action_var.expand_as(action_mean)
@@ -105,6 +183,30 @@ class ActorCritic(nn.Module):
 
 
 class PPO:
+    """
+    Proximal Policy Optimization (PPO) implementation for continuous control tasks.
+
+    Attributes:
+        max_action (float): Maximum action value.
+        action_std (float): Standard deviation of the action distribution.
+        action_std_decay_rate (float): Rate at which to decay action standard deviation.
+        min_action_std (float): Minimum allowed action standard deviation.
+        state_dim (int): Dimension of the state space.
+        gamma (float): Discount factor for future rewards.
+        eps_clip (float): Clipping range for policy updates.
+        device (str): Device for model computation ('cpu' or 'cuda').
+        save_every (int): Interval (in iterations) for saving model checkpoints.
+        model_name (str): Name used when saving/loading model.
+        save_directory (Path): Directory to save model checkpoints.
+        iter_count (int): Number of training iterations completed.
+        buffer (RolloutBuffer): Buffer to store trajectories.
+        policy (ActorCritic): Current actor-critic network.
+        optimizer (torch.optim.Optimizer): Optimizer for actor and critic.
+        policy_old (ActorCritic): Old actor-critic network for computing PPO updates.
+        MseLoss (nn.Module): Mean squared error loss function.
+        writer (SummaryWriter): TensorBoard summary writer.
+    """
+
     def __init__(
         self,
         state_dim,
@@ -160,11 +262,24 @@ class PPO:
         self.writer = SummaryWriter(comment=model_name)
 
     def set_action_std(self, new_action_std):
+        """
+        Set a new standard deviation for the action distribution.
+
+        Args:
+            new_action_std (float): New standard deviation value.
+        """
         self.action_std = new_action_std
         self.policy.set_action_std(new_action_std)
         self.policy_old.set_action_std(new_action_std)
 
     def decay_action_std(self, action_std_decay_rate, min_action_std):
+        """
+        Decay the action standard deviation by a fixed rate, down to a minimum threshold.
+
+        Args:
+            action_std_decay_rate (float): Amount to reduce standard deviation by.
+            min_action_std (float): Minimum value for standard deviation.
+        """
         print(
             "--------------------------------------------------------------------------------------------"
         )
@@ -183,6 +298,16 @@ class PPO:
         )
 
     def get_action(self, state, add_noise):
+        """
+        Sample an action using the current policy (optionally with noise), and store in buffer if noise is added.
+
+        Args:
+            state (array_like): Input state for the policy.
+            add_noise (bool): Whether to sample from the distribution (True) or use the deterministic mean (False).
+
+        Returns:
+            np.ndarray: Sampled action.
+        """
 
         with torch.no_grad():
             state = torch.FloatTensor(state).to(self.device)
@@ -197,6 +322,14 @@ class PPO:
         return action.detach().cpu().numpy().flatten()
 
     def train(self, replay_buffer, iterations, batch_size):
+        """
+        Train the policy and value function using PPO loss based on the stored rollout buffer.
+
+        Args:
+            replay_buffer: Placeholder for compatibility (not used).
+            iterations (int): Number of epochs to optimize the policy per update.
+            batch_size (int): Batch size (not used; training uses the whole buffer).
+        """
         # Monte Carlo estimate of returns
         rewards = []
         discounted_reward = 0
@@ -288,7 +421,21 @@ class PPO:
             self.save(filename=self.model_name, directory=self.save_directory)
 
     def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action):
-        # update the returned data from ROS into a form used for learning in the current model
+        """
+        Convert raw sensor and navigation data into a normalized state vector for the policy.
+
+        Args:
+            latest_scan (list[float]): LIDAR scan data.
+            distance (float): Distance to the goal.
+            cos (float): Cosine of angle to the goal.
+            sin (float): Sine of angle to the goal.
+            collision (bool): Whether the robot has collided.
+            goal (bool): Whether the robot has reached the goal.
+            action (tuple[float, float]): Last action taken (linear and angular velocities).
+
+        Returns:
+            tuple[list[float], int]: Processed state vector and terminal flag (1 if terminal, else 0).
+        """
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)
@@ -319,12 +466,26 @@ class PPO:
         return state, terminal
 
     def save(self, filename, directory):
+        """
+        Save the current policy model to the specified directory.
+
+        Args:
+            filename (str): Base name of the model file.
+            directory (Path): Directory to save the model to.
+        """
         Path(directory).mkdir(parents=True, exist_ok=True)
         torch.save(
             self.policy_old.state_dict(), "%s/%s_policy.pth" % (directory, filename)
         )
 
     def load(self, filename, directory):
+        """
+        Load the policy model from a saved checkpoint.
+
+        Args:
+            filename (str): Base name of the model file.
+            directory (Path): Directory to load the model from.
+        """
         self.policy_old.load_state_dict(
             torch.load(
                 "%s/%s_policy.pth" % (directory, filename),
