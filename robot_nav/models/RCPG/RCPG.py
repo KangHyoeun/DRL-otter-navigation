@@ -9,6 +9,23 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 class Actor(nn.Module):
+    """
+    Actor network that outputs continuous actions for a given state input.
+
+    Architecture:
+        - Processes 1D laser scan inputs through 3 convolutional layers.
+        - Embeds goal and previous action inputs using fully connected layers.
+        - Combines all features and passes them through an RNN (GRU, LSTM, or RNN).
+        - Outputs action values via a fully connected feedforward head with Tanh activation.
+
+    Parameters
+    ----------
+    action_dim : int
+        Dimensionality of the action space.
+    rnn : str, optional
+        Type of RNN layer to use ("lstm", "gru", or "rnn").
+    """
+
     def __init__(self, action_dim, rnn="gru"):
         super(Actor, self).__init__()
         assert rnn in ["lstm", "gru", "rnn"], "Unsupported rnn type"
@@ -73,6 +90,22 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
+    """
+    Critic network that estimates Q-values for state-action pairs.
+
+    Architecture:
+        - Processes the same input as the Actor (laser scan, goal, and previous action).
+        - Uses two separate Q-networks (double Q-learning) for stability.
+        - Each Q-network receives both the RNN-processed state and current action.
+
+    Parameters
+    ----------
+    action_dim : int
+        Dimensionality of the action space.
+    rnn : str, optional
+        Type of RNN layer to use ("lstm", "gru", or "rnn").
+    """
+
     def __init__(self, action_dim, rnn="gru"):
         super(Critic, self).__init__()
         assert rnn in ["lstm", "gru", "rnn"], "Unsupported rnn type"
@@ -159,6 +192,38 @@ class Critic(nn.Module):
 
 # RCPG network
 class RCPG(object):
+    """
+    Recurrent Convolutional Policy Gradient (RCPG) agent for continuous control tasks.
+
+    This class implements a recurrent actor-critic architecture using twin Q-networks and soft target updates.
+    It includes model initialization, training, inference, saving/loading, and ROS-based state preparation.
+
+    Parameters
+    ----------
+    state_dim : int
+        Dimensionality of the input state.
+    action_dim : int
+        Dimensionality of the action space.
+    max_action : float
+        Maximum allowable action value.
+    device : torch.device
+        Device to run the model on (e.g., 'cuda' or 'cpu').
+    lr : float, optional
+        Learning rate for actor and critic optimizers. Default is 1e-4.
+    save_every : int, optional
+        Frequency (in iterations) to save model checkpoints. Default is 0 (disabled).
+    load_model : bool, optional
+        Whether to load pretrained model weights. Default is False.
+    save_directory : Path, optional
+        Directory where models are saved. Default is "robot_nav/models/RCPG/checkpoint".
+    model_name : str, optional
+        Name prefix for model checkpoint files. Default is "RCPG".
+    load_directory : Path, optional
+        Directory to load pretrained models from. Default is "robot_nav/models/RCPG/checkpoint".
+    rnn : str, optional
+        Type of RNN to use in networks ("lstm", "gru", or "rnn"). Default is "gru".
+    """
+
     def __init__(
         self,
         state_dim,
@@ -198,6 +263,21 @@ class RCPG(object):
         self.save_directory = save_directory
 
     def get_action(self, obs, add_noise):
+        """
+        Computes an action for the given observation, with optional exploration noise.
+
+        Parameters
+        ----------
+        obs : array_like
+            Input observation (state).
+        add_noise : bool
+            If True, adds Gaussian noise for exploration.
+
+        Returns
+        -------
+        np.ndarray
+            Action vector clipped to [-max_action, max_action].
+        """
         if add_noise:
             return (
                 self.act(obs) + np.random.normal(0, 0.2, size=self.action_dim)
@@ -206,6 +286,19 @@ class RCPG(object):
             return self.act(obs)
 
     def act(self, state):
+        """
+        Returns the actor network's raw output for a given input state.
+
+        Parameters
+        ----------
+        state : array_like
+            State input.
+
+        Returns
+        -------
+        np.ndarray
+            Deterministic action vector from actor network.
+        """
         # Function to get the action from the actor
         state = torch.Tensor(state).to(self.device)
         return self.actor(state).cpu().data.numpy().flatten()
@@ -222,6 +315,28 @@ class RCPG(object):
         noise_clip=0.5,
         policy_freq=2,
     ):
+        """
+        Performs training over a number of iterations using batches from a replay buffer.
+
+        Parameters
+        ----------
+        replay_buffer : object
+            Experience replay buffer with a sample_batch method.
+        iterations : int
+            Number of training iterations.
+        batch_size : int
+            Size of each training batch.
+        discount : float, optional
+            Discount factor for future rewards (γ). Default is 0.99.
+        tau : float, optional
+            Soft update parameter for target networks. Default is 0.005.
+        policy_noise : float, optional
+            Standard deviation of noise added to target actions. Default is 0.2.
+        noise_clip : float, optional
+            Range to clip the noise. Default is 0.5.
+        policy_freq : int, optional
+            Frequency of policy updates relative to critic updates. Default is 2.
+        """
         av_Q = 0
         max_Q = -inf
         av_loss = 0
@@ -309,6 +424,16 @@ class RCPG(object):
             self.save(filename=self.model_name, directory=self.save_directory)
 
     def save(self, filename, directory):
+        """
+        Saves actor and critic model weights to disk.
+
+        Parameters
+        ----------
+        filename : str
+            Base name for saved model files.
+        directory : str or Path
+            Target directory to save the models.
+        """
         Path(directory).mkdir(parents=True, exist_ok=True)
         torch.save(self.actor.state_dict(), "%s/%s_actor.pth" % (directory, filename))
         torch.save(
@@ -322,6 +447,16 @@ class RCPG(object):
         )
 
     def load(self, filename, directory):
+        """
+        Loads model weights for actor and critic networks from disk.
+
+        Parameters
+        ----------
+        filename : str
+            Base name of saved model files.
+        directory : str or Path
+            Directory from which to load model files.
+        """
         self.actor.load_state_dict(
             torch.load("%s/%s_actor.pth" % (directory, filename))
         )
@@ -337,7 +472,33 @@ class RCPG(object):
         print(f"Loaded weights from: {directory}")
 
     def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action):
-        # update the returned data from ROS into a form used for learning in the current model
+        """
+        Converts raw sensor and environment data into a normalized input state vector.
+
+        Parameters
+        ----------
+        latest_scan : list or np.ndarray
+            Laser scan data.
+        distance : float
+            Distance to the goal.
+        cos : float
+            Cosine of the heading angle.
+        sin : float
+            Sine of the heading angle.
+        collision : bool
+            Whether a collision has occurred.
+        goal : bool
+            Whether the goal has been reached.
+        action : list or np.ndarray
+            Previous action taken [linear, angular].
+
+        Returns
+        -------
+        state : list
+            Normalized input state vector.
+        terminal : int
+            Terminal flag: 1 if goal reached or collision, otherwise 0.
+        """
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)

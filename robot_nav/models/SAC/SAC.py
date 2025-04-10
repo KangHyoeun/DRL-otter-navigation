@@ -11,7 +11,36 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 class SAC(object):
-    """SAC algorithm."""
+    """
+    Soft Actor-Critic (SAC) implementation.
+
+    This class implements the SAC algorithm using a Gaussian policy actor and double Q-learning critic.
+    It supports automatic entropy tuning, model saving/loading, and logging via TensorBoard.
+
+    Args:
+        state_dim (int): Dimension of the observation/state space.
+        action_dim (int): Dimension of the action space.
+        device (str): PyTorch device (e.g., 'cpu' or 'cuda').
+        max_action (float): Maximum magnitude of actions.
+        discount (float): Discount factor for rewards.
+        init_temperature (float): Initial entropy temperature.
+        alpha_lr (float): Learning rate for entropy temperature alpha.
+        alpha_betas (tuple): Adam optimizer betas for alpha.
+        actor_lr (float): Learning rate for actor network.
+        actor_betas (tuple): Adam optimizer betas for actor.
+        actor_update_frequency (int): Frequency of actor updates.
+        critic_lr (float): Learning rate for critic network.
+        critic_betas (tuple): Adam optimizer betas for critic.
+        critic_tau (float): Soft update parameter for critic target.
+        critic_target_update_frequency (int): Frequency of critic target updates.
+        learnable_temperature (bool): Whether alpha is learnable.
+        save_every (int): Save model every N training steps. Set 0 to disable.
+        load_model (bool): Whether to load model from disk at init.
+        log_dist_and_hist (bool): Log distribution and histogram if True.
+        save_directory (Path): Directory to save models.
+        model_name (str): Name for model checkpoints.
+        load_directory (Path): Directory to load model checkpoints from.
+    """
 
     def __init__(
         self,
@@ -115,6 +144,13 @@ class SAC(object):
         self.writer = SummaryWriter(comment=model_name)
 
     def save(self, filename, directory):
+        """
+        Save the actor, critic, and target critic models to the specified directory.
+
+        Args:
+            filename (str): Base name of the saved files.
+            directory (Path): Directory where models are saved.
+        """
         Path(directory).mkdir(parents=True, exist_ok=True)
         torch.save(self.actor.state_dict(), "%s/%s_actor.pth" % (directory, filename))
         torch.save(self.critic.state_dict(), "%s/%s_critic.pth" % (directory, filename))
@@ -124,6 +160,13 @@ class SAC(object):
         )
 
     def load(self, filename, directory):
+        """
+        Load the actor, critic, and target critic models from the specified directory.
+
+        Args:
+            filename (str): Base name of the saved files.
+            directory (Path): Directory where models are loaded from.
+        """
         self.actor.load_state_dict(
             torch.load("%s/%s_actor.pth" % (directory, filename))
         )
@@ -136,6 +179,14 @@ class SAC(object):
         print(f"Loaded weights from: {directory}")
 
     def train(self, replay_buffer, iterations, batch_size):
+        """
+        Run multiple training updates using data from the replay buffer.
+
+        Args:
+            replay_buffer: Buffer from which to sample training data.
+            iterations (int): Number of training iterations to run.
+            batch_size (int): Batch size for each update.
+        """
         for _ in range(iterations):
             self.update(
                 replay_buffer=replay_buffer, step=self.step, batch_size=batch_size
@@ -152,9 +203,23 @@ class SAC(object):
 
     @property
     def alpha(self):
+        """
+        Returns:
+            torch.Tensor: Current value of the entropy temperature alpha.
+        """
         return self.log_alpha.exp()
 
     def get_action(self, obs, add_noise):
+        """
+        Select an action given an observation.
+
+        Args:
+            obs (np.ndarray): Input observation.
+            add_noise (bool): Whether to add exploration noise.
+
+        Returns:
+            np.ndarray: Action vector.
+        """
         if add_noise:
             return (
                 self.act(obs) + np.random.normal(0, 0.2, size=self.action_dim)
@@ -163,6 +228,16 @@ class SAC(object):
             return self.act(obs)
 
     def act(self, obs, sample=False):
+        """
+        Generate an action from the actor network.
+
+        Args:
+            obs (np.ndarray): Input observation.
+            sample (bool): If True, sample from the policy; otherwise use the mean.
+
+        Returns:
+            np.ndarray: Action vector.
+        """
         obs = torch.FloatTensor(obs).to(self.device)
         obs = obs.unsqueeze(0)
         dist = self.actor(obs)
@@ -172,6 +247,17 @@ class SAC(object):
         return utils.to_np(action[0])
 
     def update_critic(self, obs, action, reward, next_obs, done, step):
+        """
+        Update the critic network based on a batch of transitions.
+
+        Args:
+            obs (torch.Tensor): Batch of current observations.
+            action (torch.Tensor): Batch of actions taken.
+            reward (torch.Tensor): Batch of received rewards.
+            next_obs (torch.Tensor): Batch of next observations.
+            done (torch.Tensor): Batch of done flags.
+            step (int): Current training step (for logging).
+        """
         dist = self.actor(next_obs)
         next_action = dist.rsample()
         log_prob = dist.log_prob(next_action).sum(-1, keepdim=True)
@@ -196,6 +282,13 @@ class SAC(object):
             self.critic.log(self.writer, step)
 
     def update_actor_and_alpha(self, obs, step):
+        """
+        Update the actor and optionally the entropy temperature.
+
+        Args:
+            obs (torch.Tensor): Batch of observations.
+            step (int): Current training step (for logging).
+        """
         dist = self.actor(obs)
         action = dist.rsample()
         log_prob = dist.log_prob(action).sum(-1, keepdim=True)
@@ -234,6 +327,14 @@ class SAC(object):
             self.log_alpha_optimizer.step()
 
     def update(self, replay_buffer, step, batch_size):
+        """
+        Perform a full update step (critic, actor, alpha, target critic).
+
+        Args:
+            replay_buffer: Buffer to sample from.
+            step (int): Current training step.
+            batch_size (int): Size of sample batch.
+        """
         (
             batch_states,
             batch_actions,
@@ -261,7 +362,21 @@ class SAC(object):
             utils.soft_update_params(self.critic, self.critic_target, self.critic_tau)
 
     def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action):
-        # update the returned data from ROS into a form used for learning in the current model
+        """
+        Convert raw sensor input into a normalized state vector.
+
+        Args:
+            latest_scan (list or np.ndarray): Laser scan distances.
+            distance (float): Distance to goal.
+            cos (float): Cosine of heading angle to goal.
+            sin (float): Sine of heading angle to goal.
+            collision (bool): Whether the robot has collided.
+            goal (bool): Whether the goal has been reached.
+            action (list): Last action taken [linear_vel, angular_vel].
+
+        Returns:
+            tuple: (state vector as list, terminal flag as int)
+        """
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)
