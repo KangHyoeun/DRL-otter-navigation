@@ -4,7 +4,7 @@ extra:
 nav:
 - Home: index.md
 - API Reference:
-    Robot Navigation: api/robot_nav.md
+    IR-SIM: api/IR-SIM/ir-sim
     Models:
       - DDPG: api/models/DDPG.md
       - TD3: api/models/TD3.md
