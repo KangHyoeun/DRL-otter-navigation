@@ -8,11 +8,20 @@ nav:
     Models:
       - DDPG: api/models/DDPG.md
       - TD3: api/models/TD3.md
-      - CNNTD3: api/models/cnntd3.md
+      - CNNTD3: api/models/train.md
       - RCPG: api/models/RCPG.md
       - HCM: api/models/HCM.md
       - PPO: api/models/PPO.md
       - SAC: api/models/SAC.md
+    Training:
+      - Train: api/Training/train.md
+      - Train RNN: api/Training/trainrnn.md
+    Testing:
+      - Test: api/Training/test.md
+      - Test RNN: api/Training/testrnn.md
+    Utils:
+      - Replay Buffer: api/Utils/replay_buffer.md
+      - Utils: api/Utils/utils.md
 plugins:
 - search
 - mkdocstrings
