@@ -102,20 +102,13 @@ class SIM_ENV:
             )
 
         if robot_goal is None:
-            unique = True
-            while unique:
-                robot_goal = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0]]
-                shape = {"name": "circle", "radius": 0.4}
-                state = [robot_goal[0], robot_goal[1], robot_goal[2]]
-                gf = GeometryFactory.create_geometry(**shape)
-                geometry = gf.step(np.c_[state])
-                unique = any(
-                    [
-                        shapely.intersects(geometry, obj._geometry)
-                        for obj in self.env.obstacle_list
-                    ]
-                )
-        self.env.robot.set_goal(np.array(robot_goal), init=True)
+            self.env.robot.set_random_goal(
+                obstacle_list=self.env.obstacle_list,
+                init=True,
+                range_limits=[[1, 1, -3.141592653589793], [9, 9, 3.141592653589793]],
+            )
+        else:
+            self.env.robot.set_goal(np.array(robot_goal), init=True)
         self.env.reset()
         self.robot_goal = self.env.robot.goal
 

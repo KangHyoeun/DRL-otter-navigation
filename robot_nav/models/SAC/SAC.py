@@ -20,7 +20,7 @@ class SAC(object):
     Args:
         state_dim (int): Dimension of the observation/state space.
         action_dim (int): Dimension of the action space.
-        device (str): PyTorch device (e.g., 'cpu' or 'cuda').
+        device (torch.device): PyTorch device (e.g., 'cpu' or 'cuda').
         max_action (float): Maximum magnitude of actions.
         discount (float): Discount factor for rewards.
         init_temperature (float): Initial entropy temperature.
@@ -72,7 +72,7 @@ class SAC(object):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.action_range = (-max_action, max_action)
-        self.device = torch.device(device)
+        self.device = device
         self.discount = discount
         self.critic_tau = critic_tau
         self.actor_update_frequency = actor_update_frequency
