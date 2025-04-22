@@ -46,7 +46,7 @@ class Actor(nn.Module):
             s (torch.Tensor): Input state tensor.
 
         Returns:
-            torch.Tensor: Action output tensor after Tanh activation.
+            (torch.Tensor): Action output tensor after Tanh activation.
         """
         s = F.leaky_relu(self.layer_1(s))
         s = F.leaky_relu(self.layer_2(s))
@@ -102,7 +102,7 @@ class Critic(nn.Module):
             a (torch.Tensor): Input action tensor.
 
         Returns:
-            tuple:
+            (tuple):
                 - q1 (torch.Tensor): Output Q-value from the first critic network.
                 - q2 (torch.Tensor): Output Q-value from the second critic network.
         """
@@ -196,7 +196,7 @@ class TD3(object):
             add_noise (bool): Whether to add exploration noise.
 
         Returns:
-            np.ndarray: The chosen action clipped to [-max_action, max_action].
+            (np.ndarray): The chosen action clipped to [-max_action, max_action].
         """
         if add_noise:
             return (
@@ -213,7 +213,7 @@ class TD3(object):
             state (np.ndarray): The current environment state.
 
         Returns:
-            np.ndarray: The deterministic action predicted by the actor.
+            (np.ndarray): The deterministic action predicted by the actor.
         """
         state = torch.Tensor(state).to(self.device)
         return self.actor(state).cpu().data.numpy().flatten()
@@ -239,7 +239,7 @@ class TD3(object):
         Train the TD3 agent using batches sampled from the replay buffer.
 
         Args:
-            replay_buffer: The replay buffer to sample experiences from.
+            replay_buffer (ReplayBuffer): The replay buffer to sample experiences from.
             iterations (int): Number of training iterations to perform.
             batch_size (int): Size of each mini-batch.
             discount (float): Discount factor gamma for future rewards.
@@ -417,7 +417,7 @@ class TD3(object):
             action (list or np.ndarray): Last executed action [linear_vel, angular_vel].
 
         Returns:
-            tuple:
+            (tuple):
                 - state (list): Prepared and normalized state vector.
                 - terminal (int): 1 if episode should terminate (goal or collision), else 0.
         """

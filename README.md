@@ -26,9 +26,11 @@ and information about the goal point a robot learns to navigate to a specified p
 
 **Sources**
 
-| Package |                                           Description                                           |                              Source | 
-|:--------|:-----------------------------------------------------------------------------------------------:|------------------------------------:| 
-| IR-SIM  |                                  Light-weight robot simulator                                   | https://github.com/hanruihua/ir-sim |
+| Package |                          Description                          |                              Source | 
+|:--------|:-------------------------------------------------------------:|------------------------------------:| 
+| IR-SIM  |                 Light-weight robot simulator                  | https://github.com/hanruihua/ir-sim |
+| PythonRobotics  | Python code collection of robotics algorithms (Path planning) | https://github.com/AtsushiSakai/PythonRobotics |
+
 
 **Models**
 

@@ -22,12 +22,22 @@ class Node:
     """
 
     def __init__(self, x, y, cost, parent_index):
+        """
+        Initialize Node
+
+        Args:
+            x (float): x position of the node
+            y (float): y position of the node
+            cost (float): heuristic cost of the node
+            parent_index (int): Nodes parent index
+        """
         self.x = x
         self.y = y
         self.cost = cost
         self.parent_index = parent_index
 
     def __str__(self):
+        """str function for Node class"""
         return (
             str(self.x)
             + ","
@@ -44,8 +54,12 @@ class PRMPlanner:
         """
         Initialize PRM planner
 
-        env (EnvBase): environment where the planning will take place
-        robot_radius (float): robot body modeled as circle with given radius
+        Args:
+            env (EnvBase): environment where the planning will take place
+            robot_radius (float): robot body modeled as circle with given radius
+            n_sample (int): number of samples
+            n_knn (int): number of edges
+            max_edge_len (float): max edge length
         """
 
         self.rr = robot_radius
@@ -64,12 +78,17 @@ class PRMPlanner:
         """
         Run probabilistic road map planning
 
-        :param start_x: start x position
-        :param start_y: start y position
-        :param goal_x: goal x position
-        :param goal_y: goal y position
-        :param rng: (Optional) Random generator
-        :return:
+        Args:
+            start_x (float): start x position
+            start_y (float): start y position
+            goal_x (float): goal x position
+            goal_y (float): goal y position
+            rng (Optional): Random generator
+            show_animation (bool): If true, shows the animation of planning process
+
+        Returns:
+            rx (float): x position list of the final path
+            ry (float): y position list of the final path
         """
 
         sample_x, sample_y = self.sample_points(start_x, start_y, goal_x, goal_y, rng)
@@ -92,6 +111,16 @@ class PRMPlanner:
         return rx, ry
 
     def check_node(self, x, y, rr):
+        """
+        Check positon for a collision
+
+        Args:
+            x (float): x value of the position
+            y (float): y value of the position
+
+        Returns:
+            result (bool): True if there is a collision. False otherwise
+        """
         node_position = [x, y]
         shape = {"name": "circle", "radius": rr}
         gf = GeometryFactory.create_geometry(**shape)
@@ -102,6 +131,18 @@ class PRMPlanner:
         return covered_node
 
     def is_collision(self, sx, sy, gx, gy):
+        """
+        Check if line between points is acceptable - within edge limits and free of collisions
+
+        Args:
+            sx (float): start x position
+            sy (float): start y position
+            gx (float): goal x position
+            gy (float): goal y position
+
+        Returns:
+            result (bool): True if node is not acceptable. False otherwise
+        """
         x = sx
         y = sy
         dx = gx - sx
@@ -131,8 +172,12 @@ class PRMPlanner:
         """
         Road map generation
 
-        sample_x: [m] x positions of sampled points
-        sample_y: [m] y positions of sampled points
+        Args:
+            sample_x (float): [m] x positions of sampled points
+            sample_y (float): [m] y positions of sampled points
+
+        Returns:
+            road_map (list): list of edge ids
         """
 
         road_map = []
@@ -160,19 +205,20 @@ class PRMPlanner:
 
         return road_map
 
-    def dijkstra_planning(
-        self, sx, sy, gx, gy, road_map, sample_x, sample_y, show_animation
-    ):
+    @staticmethod
+    def dijkstra_planning(sx, sy, gx, gy, road_map, sample_x, sample_y, show_animation):
         """
-        sx: start x position [m]
-        sy: start y position [m]
-        gx: goal x position [m]
-        gy: goal y position [m]
-        road_map: ??? [m]
-        sample_x: ??? [m]
-        sample_y: ??? [m]
+        Args:
+            sx (float): start x position [m]
+            sy (float): start y position [m]
+            gx (float): goal x position [m]
+            gy (float): goal y position [m]
+            road_map (list): list of edge ids
+            sample_x (float): ??? [m]
+            sample_y (float): ??? [m]
 
-        @return: Two lists of path coordinates ([x1, x2, ...], [y1, y2, ...]), empty list when no path was found
+        Returns:
+            path (tuple(list, list)): Two lists of path coordinates ([x1, x2, ...], [y1, y2, ...]), empty list when no path was found
         """
 
         start_node = Node(sx, sy, 0.0, -1)
@@ -245,7 +291,8 @@ class PRMPlanner:
 
         return rx, ry
 
-    def plot_road_map(self, road_map, sample_x, sample_y):  # pragma: no cover
+    @staticmethod
+    def plot_road_map(road_map, sample_x, sample_y):  # pragma: no cover
 
         for i, _ in enumerate(road_map):
             for ii in range(len(road_map[i])):
@@ -256,6 +303,19 @@ class PRMPlanner:
                 )
 
     def sample_points(self, sx, sy, gx, gy, rng):
+        """
+        Generate sample points
+
+        Args:
+            sx (float): start x position [m]
+            sy (float): start y position [m]
+            gx (float): goal x position [m]
+            gy (float): goal y position [m]
+            rng: Random generator
+
+        Returns:
+            sample (tuple (list, list)): sample positions
+        """
 
         sample_x, sample_y = [], []
 

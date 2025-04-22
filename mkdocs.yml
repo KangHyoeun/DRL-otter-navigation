@@ -17,11 +17,15 @@ nav:
       - Train: api/Training/train.md
       - Train RNN: api/Training/trainrnn.md
     Testing:
-      - Test: api/Training/test.md
-      - Test RNN: api/Training/testrnn.md
+      - Test: api/Testing/test.md
+      - Test RNN: api/Testing/testrnn.md
     Utils:
       - Replay Buffer: api/Utils/replay_buffer.md
       - Utils: api/Utils/utils.md
+    Path Planners:
+      - A*: api/Path Planners/astar.md
+      - PRM: api/Path Planners/prm.md
+      - RRT: api/Path Planners/rrt.md
 plugins:
 - search
 - mkdocstrings
