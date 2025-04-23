@@ -50,7 +50,7 @@ class ReplayBuffer(object):
         Get the number of elements currently in the buffer.
 
         Returns:
-            int: Current buffer size.
+            (int): Current buffer size.
         """
         return self.count
 
@@ -62,7 +62,7 @@ class ReplayBuffer(object):
             batch_size (int): Number of experiences to sample.
 
         Returns:
-            Tuple of np.ndarrays: Batches of states, actions, rewards, done flags, and next states.
+            (Tuple of np.ndarrays): Batches of states, actions, rewards, done flags, and next states.
         """
         if self.count < batch_size:
             batch = random.sample(self.buffer, self.count)
@@ -82,7 +82,7 @@ class ReplayBuffer(object):
         Return the entire buffer contents as separate arrays.
 
         Returns:
-            Tuple of np.ndarrays: Full arrays of states, actions, rewards, done flags, and next states.
+            (Tuple of np.ndarrays): Full arrays of states, actions, rewards, done flags, and next states.
         """
         s = np.array([_[0] for _ in self.buffer])
         a = np.array([_[1] for _ in self.buffer])
@@ -149,7 +149,7 @@ class RolloutReplayBuffer(object):
         Get the number of complete episodes in the buffer.
 
         Returns:
-            int: Number of episodes.
+            (int): Number of episodes.
         """
         return self.count
 
@@ -163,7 +163,7 @@ class RolloutReplayBuffer(object):
             batch_size (int): Number of sequences to sample.
 
         Returns:
-            Tuple of np.ndarrays: Sequences of past states, actions, rewards, done flags, and next states.
+            (Tuple of np.ndarrays): Sequences of past states, actions, rewards, done flags, and next states.
         """
         if self.count < batch_size:
             batch = random.sample(

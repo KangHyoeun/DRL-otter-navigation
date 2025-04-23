@@ -39,7 +39,7 @@ class SIM_ENV:
             ang_velocity (float): Angular velocity to apply to the robot.
 
         Returns:
-            tuple: Contains the latest LIDAR scan, distance to goal, cosine and sine of angle to goal,
+            (tuple): Contains the latest LIDAR scan, distance to goal, cosine and sine of angle to goal,
                    collision flag, goal reached flag, applied action, and computed reward.
         """
         self.env.step(action_id=0, action=np.array([[lin_velocity], [ang_velocity]]))
@@ -80,7 +80,7 @@ class SIM_ENV:
             random_obstacle_ids (list or None): Specific obstacle IDs to randomize.
 
         Returns:
-            tuple: Initial observation after reset, including LIDAR scan, distance, cos/sin,
+            (tuple): Initial observation after reset, including LIDAR scan, distance, cos/sin,
                    and reward-related flags and values.
         """
         if robot_state is None:
@@ -128,7 +128,7 @@ class SIM_ENV:
             vec2 (list): Second 2D vector.
 
         Returns:
-            tuple: (cosine, sine) of the angle between the vectors.
+            (tuple): (cosine, sine) of the angle between the vectors.
         """
         vec1 = vec1 / np.linalg.norm(vec1)
         vec2 = vec2 / np.linalg.norm(vec2)
@@ -148,7 +148,7 @@ class SIM_ENV:
             laser_scan (list): The LIDAR scan readings.
 
         Returns:
-            float: Computed reward for the current state.
+            (float): Computed reward for the current state.
         """
         if goal:
             return 100.0

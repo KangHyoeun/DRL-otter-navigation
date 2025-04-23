@@ -36,7 +36,7 @@ class Pretraining:
         Load samples from the specified files and populate the replay buffer.
 
         Returns:
-            object: The populated replay buffer.
+            (object): The populated replay buffer.
         """
         for file_name in self.file_names:
             print("Loading file: ", file_name)
@@ -141,7 +141,7 @@ def get_buffer(
         history_len (int, optional): Used for RCPG buffer configuration. Defaults to 10.
 
     Returns:
-        object: The initialized and optionally pre-populated replay buffer.
+        (object): The initialized and optionally pre-populated replay buffer.
     """
     if isinstance(model, PPO):
         return model.buffer
@@ -210,7 +210,7 @@ def get_max_bound(
         device (torch.device): PyTorch device for computation.
 
     Returns:
-        torch.Tensor: Maximum return bound for each sample in the batch.
+        (torch.Tensor): Maximum return bound for each sample in the batch.
     """
     next_state = next_state.clone()  # Prevents in-place modifications
     reward = reward.clone()  # Ensures original reward is unchanged

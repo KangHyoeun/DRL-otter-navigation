@@ -55,7 +55,7 @@ class Actor(nn.Module):
                               The last 5 elements are [distance, cos, sin, lin_vel, ang_vel].
 
         Returns:
-            torch.Tensor: Action tensor of shape (batch_size, action_dim),
+            (torch.Tensor): Action tensor of shape (batch_size, action_dim),
                           with values in range [-1, 1] due to tanh activation.
         """
         if len(s.shape) == 1:
@@ -138,7 +138,7 @@ class Critic(nn.Module):
             action (torch.Tensor): Current action tensor of shape (batch_size, action_dim).
 
         Returns:
-            tuple:
+            (tuple):
                 - q1 (torch.Tensor): First Q-value estimate (batch_size, 1).
                 - q2 (torch.Tensor): Second Q-value estimate (batch_size, 1).
         """
