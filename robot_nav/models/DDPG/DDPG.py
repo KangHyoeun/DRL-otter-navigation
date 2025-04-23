@@ -46,7 +46,7 @@ class Actor(nn.Module):
             s (torch.Tensor): Input state tensor of shape (batch_size, state_dim).
 
         Returns:
-            torch.Tensor: Output action tensor of shape (batch_size, action_dim), scaled to [-1, 1].
+            (torch.Tensor): Output action tensor of shape (batch_size, action_dim), scaled to [-1, 1].
         """
         s = F.leaky_relu(self.layer_1(s))
         s = F.leaky_relu(self.layer_2(s))
@@ -95,7 +95,7 @@ class Critic(nn.Module):
             a (torch.Tensor): Action tensor of shape (batch_size, action_dim).
 
         Returns:
-            torch.Tensor: Q-value tensor of shape (batch_size, 1).
+            (torch.Tensor): Q-value tensor of shape (batch_size, 1).
         """
         s1 = F.leaky_relu(self.layer_1(s))
         self.layer_2_s(s1)
@@ -182,7 +182,7 @@ class DDPG(object):
             add_noise (bool): Whether to add exploration noise to the action.
 
         Returns:
-            np.array: Action selected by the actor network.
+            (np.array): Action selected by the actor network.
         """
         if add_noise:
             return (
@@ -199,7 +199,7 @@ class DDPG(object):
             state (np.array): Environment state.
 
         Returns:
-            np.array: Action values as output by the actor network.
+            (np.array): Action values as output by the actor network.
         """
         state = torch.Tensor(state).to(self.device)
         return self.actor(state).cpu().data.numpy().flatten()
@@ -225,7 +225,7 @@ class DDPG(object):
         Trains the actor and critic networks using a replay buffer and soft target updates.
 
         Args:
-            replay_buffer (object): Replay buffer object with a sample_batch method.
+            replay_buffer (ReplayBuffer): Replay buffer object with a sample_batch method.
             iterations (int): Number of training iterations.
             batch_size (int): Size of each training batch.
             discount (float): Discount factor for future rewards.
@@ -397,7 +397,7 @@ class DDPG(object):
             action (list or np.array): The action taken in the previous step.
 
         Returns:
-            tuple: (state vector, terminal flag)
+            (tuple): (state vector, terminal flag)
         """
         latest_scan = np.array(latest_scan)
 

@@ -8,7 +8,7 @@ nav:
     Models:
       - DDPG: api/models/DDPG.md
       - TD3: api/models/TD3.md
-      - CNNTD3: api/models/train.md
+      - CNNTD3: api/models/cnntd3.md
       - RCPG: api/models/RCPG.md
       - HCM: api/models/HCM.md
       - PPO: api/models/PPO.md

@@ -252,7 +252,7 @@ class CNNTD3(object):
             add_noise (bool): Whether to add exploration noise to the action.
 
         Returns:
-            np.ndarray: The selected action.
+            (np.ndarray): The selected action.
         """
         if add_noise:
             return (
@@ -269,7 +269,7 @@ class CNNTD3(object):
             state (np.ndarray): Input state.
 
         Returns:
-            np.ndarray: Action predicted by the actor network.
+            (np.ndarray): Action predicted by the actor network.
         """
         # Function to get the action from the actor
         state = torch.Tensor(state).to(self.device)
@@ -472,7 +472,7 @@ class CNNTD3(object):
             action (list or np.ndarray): Last action taken [lin_vel, ang_vel].
 
         Returns:
-            tuple:
+            (tuple):
                 - state (list): Normalized and concatenated state vector.
                 - terminal (int): Terminal flag (1 if collision or goal, else 0).
         """

@@ -8,10 +8,11 @@ import yaml
 
 class HCM(object):
     """
-    A class representing a hybrid control model (HCM) for a robot's navigation system.
+    A class representing a Hard-Coded model (HCM) for a robot's navigation system.
 
     This class contains methods for generating actions based on the robot's state, preparing state
     representations, training (placeholder method), saving/loading models, and logging experiences.
+    The method is suboptimal in order to collect collisions for pre-training of DRL models.
 
     Attributes:
         max_action (float): The maximum possible action value.
@@ -59,7 +60,7 @@ class HCM(object):
             add_noise (bool): Whether to add noise to the action for exploration.
 
         Returns:
-            list: The computed action [linear velocity, angular velocity].
+            (list): The computed action [linear velocity, angular velocity].
         """
         sin = state[-3]
         cos = state[-4]
@@ -99,7 +100,7 @@ class HCM(object):
         Placeholder method for training the hybrid control model.
 
         Args:
-            replay_buffer (object): The replay buffer containing past experiences.
+            replay_buffer (object): The replay buffer containing experiences.
             iterations (int): The number of training iterations.
             batch_size (int): The batch size for training.
             discount (float): The discount factor for future rewards.
@@ -153,7 +154,7 @@ class HCM(object):
             action (list): The action taken by the robot, [linear velocity, angular velocity].
 
         Returns:
-            tuple: A tuple containing the prepared state and a terminal flag (1 if terminal state, 0 otherwise).
+            (tuple): A tuple containing the prepared state and a terminal flag (1 if terminal state, 0 otherwise).
         """
         latest_scan = np.array(latest_scan)
 

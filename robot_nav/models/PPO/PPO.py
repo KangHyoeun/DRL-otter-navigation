@@ -47,11 +47,11 @@ class RolloutBuffer:
         Add a transition to the buffer. (Partial implementation.)
 
         Args:
-            state: The current observed state.
-            action: The action taken.
-            reward: The reward received after taking the action.
+            state (list or np.array): The current observed state.
+            action (list or np.array): The action taken.
+            reward (float): The reward received after taking the action.
             terminal (bool): Whether the episode terminated.
-            next_state: The resulting state after taking the action.
+            next_state (list or np.array): The resulting state after taking the action.
         """
         self.states.append(state)
         self.rewards.append(reward)
@@ -137,7 +137,7 @@ class ActorCritic(nn.Module):
             sample (bool): Whether to sample from the action distribution or use mean.
 
         Returns:
-            Tuple[Tensor, Tensor, Tensor]: Sampled (or mean) action, log probability, and state value.
+            (Tuple[Tensor, Tensor, Tensor]): Sampled (or mean) action, log probability, and state value.
         """
         action_mean = self.actor(state)
         cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
@@ -163,7 +163,7 @@ class ActorCritic(nn.Module):
             action (Tensor): Batch of actions.
 
         Returns:
-            Tuple[Tensor, Tensor, Tensor]: Action log probabilities, state values, and distribution entropy.
+            (Tuple[Tensor, Tensor, Tensor]): Action log probabilities, state values, and distribution entropy.
         """
         action_mean = self.actor(state)
 
@@ -306,7 +306,7 @@ class PPO:
             add_noise (bool): Whether to sample from the distribution (True) or use the deterministic mean (False).
 
         Returns:
-            np.ndarray: Sampled action.
+            (np.ndarray): Sampled action.
         """
 
         with torch.no_grad():
@@ -326,7 +326,7 @@ class PPO:
         Train the policy and value function using PPO loss based on the stored rollout buffer.
 
         Args:
-            replay_buffer: Placeholder for compatibility (not used).
+            replay_buffer (object): Placeholder for compatibility (not used).
             iterations (int): Number of epochs to optimize the policy per update.
             batch_size (int): Batch size (not used; training uses the whole buffer).
         """
@@ -434,7 +434,7 @@ class PPO:
             action (tuple[float, float]): Last action taken (linear and angular velocities).
 
         Returns:
-            tuple[list[float], int]: Processed state vector and terminal flag (1 if terminal, else 0).
+            (tuple[list[float], int]): Processed state vector and terminal flag (1 if terminal, else 0).
         """
         latest_scan = np.array(latest_scan)
 
