@@ -26,7 +26,8 @@ class SIM_ENV:
             world_file (str): Path to the world configuration YAML file.
             disable_plotting (bool): If True, disables rendering and plotting.
         """
-        self.env = irsim.make(world_file, disable_all_plot=disable_plotting)
+        display = False if disable_plotting else True
+        self.env = irsim.make(world_file, disable_all_plot=disable_plotting, display=display)
         robot_info = self.env.get_robot_info(0)
         self.robot_goal = robot_info.goal
 
@@ -84,7 +85,7 @@ class SIM_ENV:
                    and reward-related flags and values.
         """
         if robot_state is None:
-            robot_state = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0], [0]]
+            robot_state = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0]]
 
         self.env.robot.set_state(
             state=np.array(robot_state),
