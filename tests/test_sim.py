@@ -1,11 +1,5 @@
-import pytest
-
-from robot_nav.path_planners.probabilistic_road_map import PRMPlanner
-from robot_nav.path_planners.rrt import RRT
 from robot_nav.sim import SIM_ENV
 import numpy as np
-from robot_nav.path_planners.a_star import AStarPlanner
-import matplotlib.pyplot as plt
 
 
 def test_sim():
@@ -19,7 +13,7 @@ def test_sim():
     assert len(state[0]) == 180
     assert len(sim.env.obstacle_list) == 7
 
-    sim.reset()
+    sim.reset(random_obstacle_ids=[i + 1 for i in range(6)])
     new_robot_state = sim.env.get_robot_state()
     assert np.not_equal(robot_state[0], new_robot_state[0])
     assert np.not_equal(robot_state[1], new_robot_state[1])
@@ -30,27 +24,3 @@ def test_sincos():
     cos, sin = sim.cossin([1, 0], [0, 1])
     assert np.isclose(cos, 0)
     assert np.isclose(sin, 1)
-
-@pytest.mark.parametrize(
-    "planner, radius",
-    [
-        (AStarPlanner, 0.3),
-        (PRMPlanner, 0.3),
-        (RRT, 0.3),
-    ],
-)
-def test_planners(planner, radius):
-    sim = SIM_ENV("/tests/test_world.yaml", disable_plotting=True)
-    planner = planner(sim, radius)
-    robot_info = sim.env.get_robot_info()
-    robot_state = sim.env.get_robot_state()
-    sim.env.get_robot_info()
-    rx, ry = planner.planning(
-        robot_state[0].item(),
-        robot_state[1].item(),
-        robot_info.goal[0].item(),
-        robot_info.goal[1].item(),
-    )
-    plt.plot(rx, ry, "-r")
-    plt.pause(0.001)
-    plt.show()

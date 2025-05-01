@@ -27,7 +27,9 @@ class SIM_ENV:
             disable_plotting (bool): If True, disables rendering and plotting.
         """
         display = False if disable_plotting else True
-        self.env = irsim.make(world_file, disable_all_plot=disable_plotting, display=display)
+        self.env = irsim.make(
+            world_file, disable_all_plot=disable_plotting, display=display
+        )
         robot_info = self.env.get_robot_info(0)
         self.robot_goal = robot_info.goal
 
