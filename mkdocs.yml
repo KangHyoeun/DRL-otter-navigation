@@ -22,10 +22,6 @@ nav:
     Utils:
       - Replay Buffer: api/Utils/replay_buffer.md
       - Utils: api/Utils/utils.md
-    Path Planners:
-      - A*: api/Path Planners/astar.md
-      - PRM: api/Path Planners/prm.md
-      - RRT: api/Path Planners/rrt.md
 plugins:
 - search
 - mkdocstrings
