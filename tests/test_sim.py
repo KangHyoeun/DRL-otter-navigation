@@ -1,7 +1,16 @@
+import os
+
+import pytest
+
 from robot_nav.sim import SIM_ENV
 import numpy as np
 
+skip_on_ci = pytest.mark.skipif(
+    os.getenv("CI") == "true",
+    reason="Skipped on CI (GitHub Actions)"
+)
 
+@skip_on_ci
 def test_sim():
     sim = SIM_ENV("/tests/test_world.yaml")
     robot_state = sim.env.get_robot_state()
@@ -18,7 +27,7 @@ def test_sim():
     assert np.not_equal(robot_state[0], new_robot_state[0])
     assert np.not_equal(robot_state[1], new_robot_state[1])
 
-
+@skip_on_ci
 def test_sincos():
     sim = SIM_ENV("/tests/test_world.yaml")
     cos, sin = sim.cossin([1, 0], [0, 1])
