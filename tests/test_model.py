@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from robot_nav.models.RCPG.RCPG import RCPG
 from robot_nav.models.TD3.TD3 import TD3
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
@@ -7,6 +9,7 @@ from robot_nav.utils import get_buffer
 from robot_nav.sim import SIM_ENV
 import pytest
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.mark.parametrize(
     "model, state_dim",
@@ -39,7 +42,7 @@ def test_models(model, state_dim):
         training_iterations=0,
         batch_size=0,
         buffer_size=100,
-        file_names=["test_data.yml"],
+        file_names=[PROJECT_ROOT.joinpath("tests/test_data.yml")],
     )
 
     test_model.train(
@@ -79,7 +82,7 @@ def test_max_bound_models(model, state_dim):
         training_iterations=0,
         batch_size=0,
         buffer_size=100,
-        file_names=["test_data.yml"],
+        file_names=[PROJECT_ROOT.joinpath("tests/test_data.yml")],
     )
 
     test_model.train(

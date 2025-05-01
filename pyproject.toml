@@ -19,6 +19,8 @@ dependencies = [
     "scipy (>=1.15.2,<2.0.0)"
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

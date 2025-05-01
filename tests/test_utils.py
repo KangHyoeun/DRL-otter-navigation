@@ -1,9 +1,12 @@
+from pathlib import Path
+
 from robot_nav.models.SAC.SAC import SAC
 from robot_nav.models.PPO.PPO import PPO, RolloutBuffer
 from robot_nav.models.RCPG.RCPG import RCPG
 from robot_nav.utils import get_buffer, RolloutReplayBuffer, ReplayBuffer
 from robot_nav.sim import SIM_ENV
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def test_buffer():
     model = SAC(
@@ -39,7 +42,7 @@ def test_buffer():
         training_iterations=0,
         batch_size=0,
         buffer_size=100,
-        file_names=["test_data.yml"],
+        file_names=[PROJECT_ROOT.joinpath("tests/test_data.yml")],
     )
     assert prefilled_buffer.count == 100
 
@@ -78,7 +81,7 @@ def test_rollout_buffer():
         training_iterations=0,
         batch_size=0,
         buffer_size=100,
-        file_names=["test_data.yml"],
+        file_names=[PROJECT_ROOT.joinpath("tests/test_data.yml")],
     )
     assert prefilled_buffer.count == 6
 
