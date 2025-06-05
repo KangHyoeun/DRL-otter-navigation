@@ -445,7 +445,7 @@ class TD3(object):
         ang_vel = (action[1] + 1) / 2
         state = min_values + [distance, cos, sin] + [lin_vel, ang_vel]
 
-        assert len(state) == self.state_dim
+        assert len(state) == self.state_dim, f"{len(state), self.state_dim}"
         terminal = 1 if collision or goal else 0
 
         return state, terminal

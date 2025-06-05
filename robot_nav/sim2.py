@@ -33,7 +33,7 @@ class SIM_ENV:
         self.robot_goal = robot_info.goal
         self.num_robots = len(self.env.robot_list)
 
-    def step(self, action, connection):
+    def step(self, action, connection, combined_weights = None):
         """
         Perform one step in the simulation using the given control commands.
 
@@ -49,7 +49,7 @@ class SIM_ENV:
         self.env.step(action_id=[i for i in range(self.num_robots)], action=action)
         self.env.render()
 
-        lasers = []
+        poses = []
         distances = []
         coss = []
         sins = []
@@ -57,16 +57,13 @@ class SIM_ENV:
         goals = []
         rewards = []
         positions = []
+        goal_positions = []
+        robot_states = [[self.env.robot_list[i].state[0], self.env.robot_list[i].state[1]] for i in range(self.num_robots)]
         for i in range(self.num_robots):
 
-
-
-
-
-
-            scan = self.env.get_lidar_scan(id=i)
-            latest_scan = scan["ranges"]
             robot_state = self.env.robot_list[i].state
+            closest_robots = [np.linalg.norm([robot_states[j][0] - robot_state[0], robot_states[j][1] - robot_state[1]]) for j in
+                     range(self.num_robots) if j != i]
             robot_goal = self.env.robot_list[i].goal
             goal_vector = [
                 robot_goal[0].item() - robot_state[0].item(),
@@ -78,11 +75,11 @@ class SIM_ENV:
             cos, sin = self.cossin(pose_vector, goal_vector)
             collision = self.env.robot_list[i].collision
             action_i = action[i]
-            reward = self.get_reward(goal, collision, action_i, latest_scan)
+            reward = self.get_reward(goal, collision, action_i, closest_robots, distance)
 
             position = [robot_state[0].item(), robot_state[1].item()]
+            goal_position = [robot_goal[0].item(), robot_goal[1].item()]
 
-            lasers.append(latest_scan)
             distances.append(distance)
             coss.append(cos)
             sins.append(sin)
@@ -90,32 +87,52 @@ class SIM_ENV:
             goals.append(goal)
             rewards.append(reward)
             positions.append(position)
+            poses.append([robot_state[0].item(), robot_state[1].item(), robot_state[2].item()])
+            goal_positions.append(goal_position)
 
-            i_connections = connection[0][i].tolist()
+            # gumbel_sample = torch.nn.functional.gumbel_softmax(connection[i], tau=0.5, dim=-1)
+            # i_connections = gumbel_sample.tolist()
+            # i_connections.insert(i, 0)
+
+            i_probs = torch.sigmoid(connection[i])  # connection[i] is logits for "connect" per pair
+
+            # Now we need to insert the self-connection (optional, typically skipped)
+            i_connections = i_probs.tolist()
             i_connections.insert(i, 0)
+            if combined_weights is not None:
+                i_weights = combined_weights[i].tolist()
+                i_weights.insert(i, 0)
+
+
 
             for j in range(self.num_robots):
                 if i_connections[j] > 0.5:
+                    if combined_weights is not None:
+                        weight = i_weights[j]
+                    else:
+                        weight = 1
                     other_robot_state = self.env.robot_list[j].state
                     other_pos = [other_robot_state[0].item(), other_robot_state[1].item()]
                     rx = [position[0], other_pos[0]]
                     ry = [position[1], other_pos[1]]
-                    self.env.draw_trajectory(np.array([rx, ry]), refresh=True)
+                    self.env.draw_trajectory(np.array([rx, ry]), refresh=True, linewidth=weight)
 
             if goal:
                 self.env.robot_list[i].set_random_goal(
                     obstacle_list=self.env.obstacle_list,
                     init=True,
-                    range_limits=[[1, 1, -3.141592653589793], [11, 11, 3.141592653589793]],
+                    # range_limits=[[self.env.robot_list[i].position[0].item()-3, self.env.robot_list[i].position[1].item()-3, -3.141592653589793], [self.env.robot_list[i].position[0].item()+3, self.env.robot_list[i].position[1].item()+3, 3.141592653589793]],
+                    range_limits=[[1, 1, -3.141592653589793],
+                                  [11, 11, 3.141592653589793]],
                 )
 
-        return lasers, distances, coss, sins, collisions, goals, action, rewards, positions
+        return poses, distances, coss, sins, collisions, goals, action, rewards, positions, goal_positions
 
     def reset(
         self,
         robot_state=None,
         robot_goal=None,
-        random_obstacles=True,
+        random_obstacles=False,
         random_obstacle_ids=None,
     ):
         """
@@ -132,10 +149,24 @@ class SIM_ENV:
                    and reward-related flags and values.
         """
         if robot_state is None:
-            robot_state = [[random.uniform(1, 11)], [random.uniform(1, 11)], [0]]
+            robot_state = [[random.uniform(3, 9)], [random.uniform(3, 9)], [0]]
 
+        init_states = []
         for robot in self.env.robot_list:
-            robot_state = [[random.uniform(1, 11)], [random.uniform(1, 11)], [0]]
+            conflict = True
+            while conflict:
+                conflict = False
+                robot_state = [[random.uniform(3, 9)], [random.uniform(3, 9)], [random.uniform(-3.14, 3.14)]]
+                pos = [robot_state[0][0], robot_state[1][0]]
+                for loc in init_states:
+                    vector = [
+                        pos[0] - loc[0],
+                        pos[1] - loc[1],
+                    ]
+                    if np.linalg.norm(vector) < 0.6:
+                        conflict = True
+            init_states.append(pos)
+
             robot.set_state(
                 state=np.array(robot_state),
                 init=True,
@@ -156,7 +187,9 @@ class SIM_ENV:
                 robot.set_random_goal(
                     obstacle_list=self.env.obstacle_list,
                     init=True,
-                    range_limits=[[1, 1, -3.141592653589793], [11, 11, 3.141592653589793]],
+                    # range_limits=[[robot.position[0].item()-3, robot.position[1].item()-3, -3.141592653589793], [robot.position[0].item()+3, robot.position[1].item()+3, 3.141592653589793]],
+                    range_limits=[[1, 1, -3.141592653589793],
+                                  [11, 11, 3.141592653589793]],
                 )
             else:
                 self.env.robot.set_goal(np.array(robot_goal), init=True)
@@ -164,9 +197,9 @@ class SIM_ENV:
         self.robot_goal = self.env.robot.goal
 
         action = [[0.0, 0.0] for _ in range(self.num_robots)]
-        con = torch.tensor([[[0, 0], [0, 0], [0, 0]]])
-        latest_scan, distance, cos, sin, _, _, action, reward, positions = self.step(action, con)
-        return latest_scan, distance, cos, sin, [False]*self.num_robots, [False]*self.num_robots, action, reward, positions
+        con = torch.tensor([[0. for _ in range(self.num_robots-1)] for _ in range(self.num_robots)])
+        poses, distance, cos, sin, _, _, action, reward, positions, goal_positions = self.step(action, con)
+        return poses, distance, cos, sin, [False]*self.num_robots, [False]*self.num_robots, action, reward, positions, goal_positions
 
     @staticmethod
     def cossin(vec1, vec2):
@@ -187,7 +220,7 @@ class SIM_ENV:
         return cos, sin
 
     @staticmethod
-    def get_reward(goal, collision, action, laser_scan):
+    def get_reward(goal, collision, action, closest_robots, distance):
         """
         Calculate the reward for the current step.
 
@@ -200,10 +233,22 @@ class SIM_ENV:
         Returns:
             (float): Computed reward for the current state.
         """
+        # if goal:
+        #     return 100.0
+        # elif collision:
+        #     return -100.0
+        # else:
+        #     r_dist = 0.75/distance
+        #     cl_robot = min(closest_robots)
+        #     cl_pen = 0 - cl_robot if cl_robot < 0 else 0
+        #     return 2*action[0] - abs(action[1]) - cl_pen + r_dist
+
         if goal:
-            return 100.0
+            return 20.0
         elif collision:
             return -100.0
         else:
-            r3 = lambda x: 1.35 - x if x < 1.35 else 0.0
-            return action[0] - abs(action[1]) / 2 - r3(min(laser_scan)) / 2
+            r_dist = 0.1/distance
+            cl_robot = min(closest_robots)
+            cl_pen = 2.5 - cl_robot if cl_robot < 2.5 else 0
+            return 2*action[0] - abs(action[1]) - cl_pen + r_dist
