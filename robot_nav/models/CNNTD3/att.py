@@ -443,7 +443,7 @@ class CNNTD3(object):
             # else:
             #     bce_loss = torch.tensor(0.0, device=masked_weights.device)
 
-            bce_weight = 0.1
+            bce_weight = 0.0
             av_critic_bce_loss.append(bce_loss)
 
             critic_entropy_weight = 1  # or tuneable
@@ -473,7 +473,7 @@ class CNNTD3(object):
                 # else:
                 #     bce_loss = torch.tensor(0.0, device=masked_weights.device)
 
-                bce_weight = 0.1
+                bce_weight = 0.0
                 av_actor_bce_loss.append(bce_loss)
 
                 actor_Q, _, _, _, _, _ = self.critic(state, action)

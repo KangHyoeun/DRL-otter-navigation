@@ -57,7 +57,8 @@ def main(args=None):
         device=device,
     save_every=save_every,
     load_model=True,
-    model_name="CNNTD3",
+    model_name="phase2",
+    load_model_name="phase1"
     )  # instantiate a model
 
     replay_buffer = get_buffer(
@@ -72,7 +73,10 @@ def main(args=None):
     con = torch.tensor([[0. for _ in range(sim.num_robots-1)] for _ in range(sim.num_robots) ])
 
     poses, distance, cos, sin, collision, goal, a, reward, positions, goal_positions = sim.step([[0, 0] for _ in range(sim.num_robots)], con)  # get the initial step state
-
+    running_goals = 0
+    running_collisions = 0
+    running_timesteps = 0
+    iter = 1
     while epoch < max_epochs:  # train until max_epochs is reached
         state, terminal = model.prepare_state(
             poses, distance, cos, sin, collision, goal, a, positions, goal_positions
@@ -83,6 +87,9 @@ def main(args=None):
         a_in = [[(a[0] + 1) / 4, a[1]] for a in action]  # clip linear velocity to [0, 0.5] m/s range
 
         poses, distance, cos, sin, collision, goal, a, reward, positions, goal_positions = sim.step(a_in, connection, combined_weights)  # get data from the environment
+        running_goals += sum(goal)
+        running_collisions += sum(collision)
+        running_timesteps += 1
         next_state, terminal = model.prepare_state(
             poses, distance, cos, sin, collision, goal, a, positions, goal_positions
         )  # get a next state representation
@@ -96,6 +103,12 @@ def main(args=None):
             poses, distance, cos, sin, collision, goal, a, reward, positions, goal_positions = sim.reset()
             episode += 1
             if episode % train_every_n == 0:
+                model.writer.add_scalar("run/avg_goal", running_goals/running_timesteps, iter)
+                model.writer.add_scalar("run/avg_collision", running_collisions / running_timesteps, iter)
+                running_goals = 0
+                running_collisions = 0
+                running_timesteps = 0
+                iter += 1
                 model.train(
                     replay_buffer=replay_buffer,
                     iterations=training_iterations,
@@ -106,12 +119,12 @@ def main(args=None):
         else:
             steps += 1
 
-        if (
-            episode + 1
-        ) % episodes_per_epoch == 0:  # if epoch is concluded, run evaluation
-            episode = 0
-            epoch += 1
-            # evaluate(model, epoch, sim, eval_episodes=nr_eval_episodes)
+        # if (
+        #     episode + 1
+        # ) % episodes_per_epoch == 0:  # if epoch is concluded, run evaluation
+        #     episode = 0
+        #     epoch += 1
+        #     # evaluate(model, epoch, sim, eval_episodes=nr_eval_episodes)
 
 
 def evaluate(model, epoch, sim, eval_episodes=10):

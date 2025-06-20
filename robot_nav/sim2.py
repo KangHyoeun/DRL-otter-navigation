@@ -234,21 +234,46 @@ class SIM_ENV:
             (float): Computed reward for the current state.
         """
         # if goal:
+        #     return 60.0
+        # elif collision:
+        #     return -100.0
+        # else:
+        #     cl_pen = 0
+        #     for rob in closest_robots:
+        #         add = 1.5 - rob if rob < 1.5 else 0
+        #         cl_pen += add
+        #     return -cl_pen
+            # r_dist = 1.25/distance
+            # cl_robot = min(closest_robots)
+            # cl_pen = 0 - cl_robot if cl_robot < 0 else 0
+            # return 2*action[0] - abs(action[1]) - cl_pen + r_dist
+
+        # phase1
+        # if goal:
         #     return 100.0
         # elif collision:
         #     return -100.0
         # else:
-        #     r_dist = 0.75/distance
-        #     cl_robot = min(closest_robots)
-        #     cl_pen = 0 - cl_robot if cl_robot < 0 else 0
-        #     return 2*action[0] - abs(action[1]) - cl_pen + r_dist
+        #     r_dist = 1.5/distance
+        #     cl_pen = 0
+        #     for rob in closest_robots:
+        #         add = 1.5 - rob if rob < 1.5 else 0
+        #         cl_pen += add
+        #
+        #     return action[0] - 0.5 * abs(action[1])-cl_pen + r_dist
 
+
+        # phase2
         if goal:
-            return 20.0
+            return 80.0
         elif collision:
             return -100.0
         else:
-            r_dist = 0.1/distance
-            cl_robot = min(closest_robots)
-            cl_pen = 2.5 - cl_robot if cl_robot < 2.5 else 0
-            return 2*action[0] - abs(action[1]) - cl_pen + r_dist
+            r_dist = 1.5/distance
+            cl_pen = 0
+            for rob in closest_robots:
+                add = 1.5 - rob if rob < 1.5 else 0
+                cl_pen += add
+
+            return -0.5*abs(action[1])-cl_pen
+
