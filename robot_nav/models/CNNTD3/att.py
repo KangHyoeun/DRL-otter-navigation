@@ -32,12 +32,12 @@ class Attention(nn.Module):
 
         # Soft attention projections
         self.q = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.k = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.v = nn.Linear(embedding_dim, embedding_dim)
+        self.k = nn.Linear(7, embedding_dim, bias=False)
+        self.v = nn.Linear(7, embedding_dim)
 
         # Soft attention score network (with distance)
         self.attn_score_layer = nn.Sequential(
-            nn.Linear(embedding_dim + 7, embedding_dim),
+            nn.Linear(embedding_dim *2, embedding_dim),
             nn.ReLU(),
             nn.Linear(embedding_dim, 1)
         )
@@ -132,9 +132,10 @@ class Attention(nn.Module):
             mask[i] = False
             edge_i_wo_self = edge_features[:, i, mask, :]
             edge_i_wo_self = edge_i_wo_self.squeeze(1)  # (B, N-1, 7)
+            k = F.leaky_relu(self.k(edge_i_wo_self))
 
             q_i_expanded = q_i.expand(-1, n_agents - 1, -1)  # (B, N-1, D)
-            attention_input = torch.cat([q_i_expanded, edge_i_wo_self], dim=-1)  # (B, N-1, D+7)
+            attention_input = torch.cat([q_i_expanded, k], dim=-1)  # (B, N-1, D+7)
 
             # Score computation
             scores = self.attn_score_layer(attention_input).transpose(1, 2)  # (B, 1, N-1)
@@ -166,7 +167,8 @@ class Attention(nn.Module):
             entropy_list.append(entropy)
 
             # Project each other agent's features to embedding dim *before* the attention-weighted sum
-            v_j = self.v_proj(edge_i_wo_self)  # (B, N-1, embedding_dim)
+            # v_j = self.v_proj(edge_i_wo_self)  # (B, N-1, embedding_dim)
+            v_j = F.leaky_relu(self.v(edge_i_wo_self))
             attn_output = torch.bmm(combined_weights, v_j).squeeze(1)  # (B, embedding_dim)
             attention_outputs.append(attn_output)
 
