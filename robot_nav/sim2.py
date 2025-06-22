@@ -249,23 +249,8 @@ class SIM_ENV:
             # return 2*action[0] - abs(action[1]) - cl_pen + r_dist
 
         # phase1
-        # if goal:
-        #     return 100.0
-        # elif collision:
-        #     return -100.0
-        # else:
-        #     r_dist = 1.5/distance
-        #     cl_pen = 0
-        #     for rob in closest_robots:
-        #         add = 1.5 - rob if rob < 1.5 else 0
-        #         cl_pen += add
-        #
-        #     return action[0] - 0.5 * abs(action[1])-cl_pen + r_dist
-
-
-        # phase2
         if goal:
-            return 80.0
+            return 100.0
         elif collision:
             return -100.0
         else:
@@ -275,5 +260,20 @@ class SIM_ENV:
                 add = 1.5 - rob if rob < 1.5 else 0
                 cl_pen += add
 
-            return -0.5*abs(action[1])-cl_pen
+            return action[0] - 0.5 * abs(action[1])-cl_pen + r_dist
+
+
+        # phase2
+        # if goal:
+        #     return 80.0
+        # elif collision:
+        #     return -100.0
+        # else:
+        #     r_dist = 1.5/distance
+        #     cl_pen = 0
+        #     for rob in closest_robots:
+        #         add = 1.5 - rob if rob < 1.5 else 0
+        #         cl_pen += add
+        #
+        #     return -0.5*abs(action[1])-cl_pen
 

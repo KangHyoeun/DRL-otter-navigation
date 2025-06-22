@@ -56,8 +56,8 @@ def main(args=None):
         num_robots=sim.num_robots,
         device=device,
     save_every=save_every,
-    load_model=True,
-    model_name="phase2",
+    load_model=False,
+    model_name="phase1",
     load_model_name="phase1"
     )  # instantiate a model
 
