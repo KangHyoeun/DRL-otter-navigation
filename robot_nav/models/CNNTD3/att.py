@@ -346,7 +346,9 @@ class CNNTD3(object):
         """
         action, connection, combined_weights = self.act(obs)
         if add_noise:
-            action = (action + np.random.normal(0, 0.1, size=action.shape)
+            noise = np.random.normal(0, 0.4, size=action.shape)
+            noise = [n/4 if i%2 else n for i, n in enumerate(noise)]
+            action = (action + noise
             ).clip(-self.max_action, self.max_action)
 
         return action.reshape(-1, 2), connection, combined_weights
