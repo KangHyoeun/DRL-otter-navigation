@@ -32,8 +32,8 @@ class Attention(nn.Module):
 
         # Soft attention projections
         self.q = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.k = nn.Linear(7, embedding_dim, bias=False)
-        self.v = nn.Linear(7, embedding_dim)
+        self.k = nn.Linear(9, embedding_dim, bias=False)
+        self.v = nn.Linear(9, embedding_dim)
 
         # Soft attention score network (with distance)
         self.attn_score_layer = nn.Sequential(
@@ -42,7 +42,6 @@ class Attention(nn.Module):
             nn.Linear(embedding_dim, 1)
         )
 
-        self.v_proj = nn.Linear(7, embedding_dim)
         # Decoder
         self.decode_1 = nn.Linear(embedding_dim * 2, embedding_dim * 2)
         nn.init.kaiming_uniform_(self.decode_1.weight, nonlinearity="leaky_relu")
@@ -59,10 +58,14 @@ class Attention(nn.Module):
             embedding = embedding.unsqueeze(0)
         batch_size, n_agents, _ = embedding.shape
 
-        embed = embedding[:, :, 4:].reshape(batch_size * n_agents, -1)
+        embed = embedding[:, :, 4:9].reshape(batch_size * n_agents, -1)
         position = embedding[:, :, :2].reshape(batch_size, n_agents, 2)
         heading = embedding[:, :, 2:4].reshape(batch_size, n_agents, 2)  # assume (cos(θ), sin(θ))
-        action = embedding[:, :, -2:].reshape(batch_size, n_agents, 2)
+        action = embedding[:, :, 7:9].reshape(batch_size, n_agents, 2)
+        goal = embedding[:, :, -2:].reshape(batch_size, n_agents, 2)
+        goal_j = goal.unsqueeze(1).expand(-1, n_agents, -1, -1)  # (B, N, N, 2)
+        pos_i = position.unsqueeze(2)  # (B, N, 1, 2)
+        rel_goal = goal_j - pos_i
 
         agent_embed = self.encode_agent_features(embed)
         agent_embed = agent_embed.view(batch_size, n_agents, self.embedding_dim)
@@ -126,11 +129,12 @@ class Attention(nn.Module):
         attention_outputs = []
         entropy_list = []
         combined_w = []
+        soft_edge_features = torch.cat([edge_features, rel_goal], dim=-1)
         for i in range(n_agents):
             q_i = q[:, i:i + 1, :]  # (B, 1, D)
             mask = torch.ones(n_agents, dtype=torch.bool, device=edge_features.device)
             mask[i] = False
-            edge_i_wo_self = edge_features[:, i, mask, :]
+            edge_i_wo_self = soft_edge_features[:, i, mask, :]
             edge_i_wo_self = edge_i_wo_self.squeeze(1)  # (B, N-1, 7)
             k = F.leaky_relu(self.k(edge_i_wo_self))
 
@@ -167,7 +171,6 @@ class Attention(nn.Module):
             entropy_list.append(entropy)
 
             # Project each other agent's features to embedding dim *before* the attention-weighted sum
-            # v_j = self.v_proj(edge_i_wo_self)  # (B, N-1, embedding_dim)
             v_j = F.leaky_relu(self.v(edge_i_wo_self))
             attn_output = torch.bmm(combined_weights, v_j).squeeze(1)  # (B, embedding_dim)
             attention_outputs.append(attn_output)
@@ -346,7 +349,7 @@ class CNNTD3(object):
         """
         action, connection, combined_weights = self.act(obs)
         if add_noise:
-            noise = np.random.normal(0, 0.4, size=action.shape)
+            noise = np.random.normal(0, 0.5, size=action.shape)
             noise = [n/4 if i%2 else n for i, n in enumerate(noise)]
             action = (action + noise
             ).clip(-self.max_action, self.max_action)
@@ -609,7 +612,7 @@ class CNNTD3(object):
             ang_vel = (act[1] + 1) / 2  # Assuming original range [-1, 1]
 
             # Final state vector
-            state = [x, y, heading_cos, heading_sin, distance[i]/17, cos[i], sin[i], lin_vel, ang_vel]
+            state = [x, y, heading_cos, heading_sin, distance[i]/17, cos[i], sin[i], lin_vel, ang_vel, gx, gy]
 
             assert len(state) == self.state_dim, f"State length mismatch: expected {self.state_dim}, got {len(state)}"
             states.append(state)
