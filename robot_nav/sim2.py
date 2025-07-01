@@ -286,7 +286,7 @@ class SIM_ENV:
             r_dist = 1.5 / distance
             cl_pen = 0
             for rob in closest_robots:
-                add = 2.5 - rob if rob < 2.5 else 0
+                add = (3 - rob)**2 if rob < 3 else 0
                 cl_pen += add
 
             return -0.5 * abs(action[1]) - cl_pen
