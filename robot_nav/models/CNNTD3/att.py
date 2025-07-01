@@ -32,8 +32,8 @@ class Attention(nn.Module):
 
         # Soft attention projections
         self.q = nn.Linear(embedding_dim, embedding_dim, bias=False)
-        self.k = nn.Linear(9, embedding_dim, bias=False)
-        self.v = nn.Linear(9, embedding_dim)
+        self.k = nn.Linear(10, embedding_dim, bias=False)
+        self.v = nn.Linear(10, embedding_dim)
 
         # Soft attention score network (with distance)
         self.attn_score_layer = nn.Sequential(
@@ -65,7 +65,7 @@ class Attention(nn.Module):
         goal = embedding[:, :, -2:].reshape(batch_size, n_agents, 2)
         goal_j = goal.unsqueeze(1).expand(-1, n_agents, -1, -1)  # (B, N, N, 2)
         pos_i = position.unsqueeze(2)  # (B, N, 1, 2)
-        rel_goal = goal_j - pos_i
+        goal_rel_vec = goal_j - pos_i
 
         agent_embed = self.encode_agent_features(embed)
         agent_embed = agent_embed.view(batch_size, n_agents, self.embedding_dim)
@@ -80,7 +80,7 @@ class Attention(nn.Module):
         # Compute relative vectors and distance
         rel_vec = pos_j - pos_i  # (B, N, N, 2)
         dx, dy = rel_vec[..., 0], rel_vec[..., 1]
-        rel_dist = torch.linalg.vector_norm(rel_vec, dim=-1, keepdim=True)  # (B, N, N, 1)
+        rel_dist = torch.linalg.vector_norm(rel_vec, dim=-1, keepdim=True)/12  # (B, N, N, 1)
 
         # Relative angle in agent i's frame
         angle = torch.atan2(dy, dx) - torch.atan2(heading_i[..., 1], heading_i[..., 0])
@@ -119,7 +119,7 @@ class Attention(nn.Module):
         hard_weights = F.gumbel_softmax(hard_logits, hard=False, tau=0.5, dim=-1)[..., 1].unsqueeze(2)
         hard_weights = hard_weights.view(batch_size, n_agents, n_agents - 1)
 
-        unnorm_rel_vec = rel_vec * 12
+        unnorm_rel_vec = rel_vec
         unnorm_rel_dist = torch.linalg.vector_norm(unnorm_rel_vec, dim=-1, keepdim=True)
         unnorm_rel_dist = unnorm_rel_dist[:, mask].reshape(batch_size * n_agents, n_agents - 1, 1)
 
@@ -129,7 +129,19 @@ class Attention(nn.Module):
         attention_outputs = []
         entropy_list = []
         combined_w = []
-        soft_edge_features = torch.cat([edge_features, rel_goal], dim=-1)
+
+        goal_rel_dist = torch.linalg.vector_norm(goal_rel_vec, dim=-1, keepdim=True)
+        goal_angle_global = torch.atan2(goal_rel_vec[..., 1], goal_rel_vec[..., 0])
+        heading_angle = torch.atan2(heading_i[..., 1], heading_i[..., 0])
+        goal_rel_angle = goal_angle_global - heading_angle
+        goal_rel_angle = (goal_rel_angle + np.pi) % (2 * np.pi) - np.pi
+        goal_rel_angle_cos = torch.cos(goal_rel_angle).unsqueeze(-1)
+        goal_rel_angle_sin = torch.sin(goal_rel_angle).unsqueeze(-1)
+        goal_polar = torch.cat([goal_rel_dist, goal_rel_angle_cos, goal_rel_angle_sin], dim=-1)
+
+
+
+        soft_edge_features = torch.cat([edge_features, goal_polar], dim=-1)
         for i in range(n_agents):
             q_i = q[:, i:i + 1, :]  # (B, 1, D)
             mask = torch.ones(n_agents, dtype=torch.bool, device=edge_features.device)
@@ -591,18 +603,6 @@ class CNNTD3(object):
             px, py, theta = pose
             gx, gy = goal_pos
 
-            # Global position (keep for boundary awareness)
-            x = px / 12
-            y = py / 12
-
-            # Relative goal position in local frame
-            dx = gx - px
-            dy = gy - py
-            rel_gx = dx * np.cos(theta) + dy * np.sin(theta)
-            rel_gy = -dx * np.sin(theta) + dy * np.cos(theta)
-            rel_gx /= 12
-            rel_gy /= 12
-
             # Heading as cos/sin
             heading_cos = np.cos(theta)
             heading_sin = np.sin(theta)
@@ -612,7 +612,7 @@ class CNNTD3(object):
             ang_vel = (act[1] + 1) / 2  # Assuming original range [-1, 1]
 
             # Final state vector
-            state = [x, y, heading_cos, heading_sin, distance[i]/17, cos[i], sin[i], lin_vel, ang_vel, gx, gy]
+            state = [px, py, heading_cos, heading_sin, distance[i]/17, cos[i], sin[i], lin_vel, ang_vel, gx, gy]
 
             assert len(state) == self.state_dim, f"State length mismatch: expected {self.state_dim}, got {len(state)}"
             states.append(state)
