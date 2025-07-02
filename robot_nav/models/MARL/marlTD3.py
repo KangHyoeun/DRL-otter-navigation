@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from numpy import inf
 from torch.utils.tensorboard import SummaryWriter
 
-from robot_nav.models.MARL.hsAttention import Attention
+from robot_nav.models.MARL.hardsoftAttention import Attention
 
 
 class Actor(nn.Module):
