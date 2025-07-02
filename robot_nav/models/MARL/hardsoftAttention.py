@@ -5,7 +5,33 @@ import torch.nn.functional as F
 
 
 class Attention(nn.Module):
+    """
+    Multi-robot attention mechanism for learning hard and soft attentions.
+
+    This module provides both hard (binary) and soft (weighted) attention,
+    combining feature encoding, relative pose and goal geometry, and
+    message passing between agents.
+
+    Args:
+        embedding_dim (int): Dimension of the agent embedding vector.
+
+    Attributes:
+        embedding1 (nn.Linear): First layer for agent feature encoding.
+        embedding2 (nn.Linear): Second layer for agent feature encoding.
+        hard_mlp (nn.Sequential): MLP to process concatenated agent and edge features.
+        hard_encoding (nn.Linear): Outputs logits for hard (binary) attention.
+        q, k, v (nn.Linear): Layers for query, key, value projections for soft attention.
+        attn_score_layer (nn.Sequential): Computes unnormalized attention scores for each pair.
+        decode_1, decode_2 (nn.Linear): Decoding layers to produce the final attended embedding.
+    """
+
     def __init__(self, embedding_dim):
+        """
+        Initialize attention mechanism for multi-agent communication.
+
+        Args:
+            embedding_dim (int): Output embedding dimension per agent.
+        """
         super(Attention, self).__init__()
         self.embedding_dim = embedding_dim
 
@@ -41,15 +67,41 @@ class Attention(nn.Module):
         nn.init.kaiming_uniform_(self.decode_2.weight, nonlinearity="leaky_relu")
 
     def encode_agent_features(self, embed):
+        """
+        Encode agent features using a small MLP.
+
+        Args:
+            embed (Tensor): Input features (B*N, 5).
+
+        Returns:
+            Tensor: Encoded embedding (B*N, embedding_dim).
+        """
         embed = F.leaky_relu(self.embedding1(embed))
         embed = F.leaky_relu(self.embedding2(embed))
         return embed
 
     def forward(self, embedding):
+        """
+        Forward pass: computes both hard and soft attentions among agents,
+        produces the attended embedding for each agent, as well as diagnostic info.
+
+        Args:
+            embedding (Tensor): Input tensor of shape (B, N, D), where D is at least 11.
+
+        Returns:
+            tuple:
+                att_embedding (Tensor): Final attended embedding, shape (B*N, 2*embedding_dim).
+                hard_logits (Tensor): Logits for hard attention, (B*N, N-1).
+                unnorm_rel_dist (Tensor): Pairwise distances between agents (not normalized), (B*N, N-1, 1).
+                mean_entropy (Tensor): Mean entropy of soft attention distributions.
+                hard_weights (Tensor): Binary hard attention mask, (B, N, N-1).
+                comb_w (Tensor): Final combined attention weights, (N, N*(N-1)).
+        """
         if embedding.dim() == 2:
             embedding = embedding.unsqueeze(0)
         batch_size, n_agents, _ = embedding.shape
 
+        # Extract sub-features
         embed = embedding[:, :, 4:9].reshape(batch_size * n_agents, -1)
         position = embedding[:, :, :2].reshape(batch_size, n_agents, 2)
         heading = embedding[:, :, 2:4].reshape(
@@ -57,14 +109,17 @@ class Attention(nn.Module):
         )  # assume (cos(θ), sin(θ))
         action = embedding[:, :, 7:9].reshape(batch_size, n_agents, 2)
         goal = embedding[:, :, -2:].reshape(batch_size, n_agents, 2)
+
+        # Compute pairwise relative goal vectors (for each i,j)
         goal_j = goal.unsqueeze(1).expand(-1, n_agents, -1, -1)
         pos_i = position.unsqueeze(2)
         goal_rel_vec = goal_j - pos_i
 
+        # Encode agent features
         agent_embed = self.encode_agent_features(embed)
         agent_embed = agent_embed.view(batch_size, n_agents, self.embedding_dim)
 
-        # For hard attention
+        # Prep for hard attention: compute all relative geometry for each agent pair
         h_i = agent_embed.unsqueeze(2)  # (B, N, 1, D)
         pos_i = position.unsqueeze(2)  # (B, N, 1, 2)
         pos_j = position.unsqueeze(1)  # (B, 1, N, 2)
@@ -88,7 +143,7 @@ class Attention(nn.Module):
         heading_j_cos = heading_j[..., 0]  # (B, 1, N)
         heading_j_sin = heading_j[..., 1]  # (B, 1, N)
 
-        # Stack edge features
+        # Edge features for hard attention
         edge_features = torch.cat(
             [
                 rel_dist,  # (B, N, N, 1)
@@ -101,7 +156,7 @@ class Attention(nn.Module):
             dim=-1,
         )
 
-        # Broadcast h_i along N (for each pair)
+        # Broadcast agent embedding for all pairs (except self-pairs)
         h_i_expanded = h_i.expand(-1, -1, n_agents, -1)
 
         # Remove self-pairs using mask
@@ -129,13 +184,14 @@ class Attention(nn.Module):
             batch_size * n_agents, n_agents - 1, 1
         )
 
-        # Soft attention
+        # ---- Soft attention computation ----
         q = self.q(agent_embed)
 
         attention_outputs = []
         entropy_list = []
         combined_w = []
 
+        # Goal-relative polar features for soft attention
         goal_rel_dist = torch.linalg.vector_norm(goal_rel_vec, dim=-1, keepdim=True)
         goal_angle_global = torch.atan2(goal_rel_vec[..., 1], goal_rel_vec[..., 0])
         heading_angle = torch.atan2(heading_i[..., 1], heading_i[..., 0])
@@ -147,6 +203,7 @@ class Attention(nn.Module):
             [goal_rel_dist, goal_rel_angle_cos, goal_rel_angle_sin], dim=-1
         )
 
+        # Soft attention edge features (include goal polar)
         soft_edge_features = torch.cat([edge_features, goal_polar], dim=-1)
         for i in range(n_agents):
             q_i = q[:, i : i + 1, :]
@@ -159,10 +216,10 @@ class Attention(nn.Module):
             q_i_expanded = q_i.expand(-1, n_agents - 1, -1)
             attention_input = torch.cat([q_i_expanded, k], dim=-1)
 
-            # Score computation
+            # Score computation (per pair)
             scores = self.attn_score_layer(attention_input).transpose(1, 2)
 
-            # Mask using hard weights
+            # Mask using hard attention
             h_weights = hard_weights[:, i].unsqueeze(1)
             mask = (h_weights > 0.5).float()
 
@@ -183,12 +240,12 @@ class Attention(nn.Module):
             combined_weights = soft_weights * mask  # (B, 1, N-1)
             combined_w.append(combined_weights)
 
-            # Normalize combined_weights for entropy calculation
+            # Normalize for entropy calculation
             combined_weights_norm = combined_weights / (
                 combined_weights.sum(dim=-1, keepdim=True) + epsilon
             )
 
-            # Calculate entropy from combined_weights
+            # Entropy for analysis/logging
             entropy = (
                 -(combined_weights_norm * (combined_weights_norm + epsilon).log())
                 .sum(dim=-1)

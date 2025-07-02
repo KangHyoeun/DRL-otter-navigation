@@ -7,6 +7,15 @@ from utils import get_buffer
 
 
 def outside_of_bounds(poses):
+    """
+    Check if any robot is outside the defined world boundaries.
+
+    Args:
+        poses (list): List of [x, y, theta] poses for each robot.
+
+    Returns:
+        bool: True if any robot is outside the 21x21 area centered at (6, 6), else False.
+    """
     outside = False
     for pose in poses:
         norm_x = pose[0] - 6
@@ -19,6 +28,8 @@ def outside_of_bounds(poses):
 
 def main(args=None):
     """Main training function"""
+
+    # ---- Hyperparameters and setup ----
     action_dim = 2  # number of actions produced by the model
     max_action = 1  # maximum absolute value of output actions
     state_dim = 11  # number of input values in the neural network (vector length of state input)
@@ -40,6 +51,7 @@ def main(args=None):
     )
     save_every = 5  # save the model every n training cycles
 
+    # ---- Instantiate simulation environment and model ----
     sim = MARL_SIM(
         world_file="multi_robot_world.yaml", disable_plotting=False
     )  # instantiate environment
@@ -56,6 +68,7 @@ def main(args=None):
         load_model_name="phase1",
     )  # instantiate a model
 
+    # ---- Setup replay buffer and initial connections ----
     replay_buffer = get_buffer(
         model,
         sim,
@@ -69,12 +82,15 @@ def main(args=None):
         [[0.0 for _ in range(sim.num_robots - 1)] for _ in range(sim.num_robots)]
     )
 
+    # ---- Take initial step in environment ----
     poses, distance, cos, sin, collision, goal, a, reward, positions, goal_positions = (
         sim.step([[0, 0] for _ in range(sim.num_robots)], connections)
     )  # get the initial step state
     running_goals = 0
     running_collisions = 0
     running_timesteps = 0
+
+    # ---- Main training loop ----
     while epoch < max_epochs:  # train until max_epochs is reached
         state, terminal = model.prepare_state(
             poses, distance, cos, sin, collision, a, goal_positions
