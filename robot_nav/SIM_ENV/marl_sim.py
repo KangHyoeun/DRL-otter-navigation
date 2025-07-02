@@ -8,23 +8,26 @@ from robot_nav.SIM_ENV.sim_env import SIM_ENV
 
 class MARL_SIM(SIM_ENV):
     """
-    A simulation environment interface for robot navigation using IRSim in MARL setting.
+    Simulation environment for multi-agent robot navigation using IRSim.
 
-    This class wraps around the IRSim environment and provides methods for stepping,
-    resetting, and interacting with mobile robots, including reward computation.
+    This class extends the SIM_ENV and provides a wrapper for multi-robot
+    simulation and interaction, supporting reward computation and custom reset logic.
 
     Attributes:
-        env (object): The simulation environment instance from IRSim.
-        robot_goal (np.ndarray): The goal position of the robot.
+        env (object): IRSim simulation environment instance.
+        robot_goal (np.ndarray): Current goal position(s) for the robots.
+        num_robots (int): Number of robots in the environment.
+        x_range (tuple): World x-range.
+        y_range (tuple): World y-range.
     """
 
     def __init__(self, world_file="multi_robot_world.yaml", disable_plotting=False):
         """
-        Initialize the simulation environment.
+        Initialize the MARL_SIM environment.
 
         Args:
-            world_file (str): Path to the world configuration YAML file.
-            disable_plotting (bool): If True, disables rendering and plotting.
+            world_file (str, optional): Path to the world configuration YAML file.
+            disable_plotting (bool, optional): If True, disables IRSim rendering and plotting.
         """
         display = False if disable_plotting else True
         self.env = irsim.make(
@@ -38,15 +41,26 @@ class MARL_SIM(SIM_ENV):
 
     def step(self, action, connection, combined_weights=None):
         """
-        Perform one step in the simulation using the given control commands.
+        Perform a simulation step for all robots using the provided actions and connections.
 
         Args:
-            lin_velocity (float): Linear velocity to apply to the robot.
-            ang_velocity (float): Angular velocity to apply to the robot.
+            action (list): List of actions for each robot [[lin_vel, ang_vel], ...].
+            connection (Tensor): Tensor of shape (num_robots, num_robots-1) containing logits indicating connections between robots.
+            combined_weights (Tensor or None, optional): Optional weights for each connection, shape (num_robots, num_robots-1).
 
         Returns:
-            (tuple): Contains the latest LIDAR scan, distance to goal, cosine and sine of angle to goal,
-                   collision flag, goal reached flag, applied action, and computed reward.
+            tuple: (
+                poses (list): List of [x, y, theta] for each robot,
+                distances (list): Distance to goal for each robot,
+                coss (list): Cosine of angle to goal for each robot,
+                sins (list): Sine of angle to goal for each robot,
+                collisions (list): Collision status for each robot,
+                goals (list): Goal reached status for each robot,
+                action (list): Actions applied,
+                rewards (list): Rewards computed,
+                positions (list): Current [x, y] for each robot,
+                goal_positions (list): Goal [x, y] for each robot,
+            )
         """
         self.env.step(action_id=[i for i in range(self.num_robots)], action=action)
         self.env.render()
@@ -166,17 +180,27 @@ class MARL_SIM(SIM_ENV):
         random_obstacle_ids=None,
     ):
         """
-        Reset the simulation environment, optionally setting robot and obstacle states.
+        Reset the simulation environment and optionally set robot and obstacle positions.
 
         Args:
-            robot_state (list or None): Initial state of the robot as a list of [x, y, theta, speed].
-            robot_goal (list or None): Goal state for the robot.
-            random_obstacles (bool): Whether to randomly reposition obstacles.
-            random_obstacle_ids (list or None): Specific obstacle IDs to randomize.
+            robot_state (list or None, optional): Initial state for robots as [x, y, theta, speed].
+            robot_goal (list or None, optional): Goal position(s) for the robots.
+            random_obstacles (bool, optional): If True, randomly position obstacles.
+            random_obstacle_ids (list or None, optional): IDs of obstacles to randomize.
 
         Returns:
-            (tuple): Initial observation after reset, including LIDAR scan, distance, cos/sin,
-                   and reward-related flags and values.
+            tuple: (
+                poses (list): List of [x, y, theta] for each robot,
+                distances (list): Distance to goal for each robot,
+                coss (list): Cosine of angle to goal for each robot,
+                sins (list): Sine of angle to goal for each robot,
+                collisions (list): All False after reset,
+                goals (list): All False after reset,
+                action (list): Initial action ([[0.0, 0.0], ...]),
+                rewards (list): Rewards for initial state,
+                positions (list): Initial [x, y] for each robot,
+                goal_positions (list): Initial goal [x, y] for each robot,
+            )
         """
         if robot_state is None:
             robot_state = [[random.uniform(3, 9)], [random.uniform(3, 9)], [0]]
@@ -254,18 +278,18 @@ class MARL_SIM(SIM_ENV):
     @staticmethod
     def get_reward(goal, collision, action, closest_robots, distance, phase=1):
         """
-        Calculate the reward for the current step.
+        Calculate the reward for a robot given the current state and action.
 
         Args:
-            goal (bool): Whether the goal has been reached.
+            goal (bool): Whether the robot reached its goal.
             collision (bool): Whether a collision occurred.
-            action (list): The action taken [linear velocity, angular velocity].
-            closest_robots (list): Distances to the closest robots.
-            distance (float): Distance to goal.
-            phase (int, optional): Reward function phase. Defaults to 1.
+            action (list): [linear_velocity, angular_velocity] applied.
+            closest_robots (list): Distances to the closest other robots.
+            distance (float): Distance to the goal.
+            phase (int, optional): Reward phase/function selector (default: 1).
 
         Returns:
-            (float): Computed reward for the current state.
+            float: Computed reward.
         """
 
         match phase:

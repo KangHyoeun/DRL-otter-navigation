@@ -4,7 +4,9 @@ extra:
 nav:
 - Home: index.md
 - API Reference:
-    IR-SIM: api/IR-SIM/ir-sim
+    IR-SIM:
+      - SIM: api/IR-SIM/ir-sim
+      - MARL SIM: api/IR-SIM/ir-marl-sim
     Models:
       - DDPG: api/models/DDPG.md
       - TD3: api/models/TD3.md
@@ -13,6 +15,9 @@ nav:
       - HCM: api/models/HCM.md
       - PPO: api/models/PPO.md
       - SAC: api/models/SAC.md
+      - MARL:
+          - HardSoft Attention: api/models/MARL/Attention
+          - TD3: api/models/MARL/TD3
     Training:
       - Train: api/Training/train.md
       - Train RNN: api/Training/trainrnn.md
