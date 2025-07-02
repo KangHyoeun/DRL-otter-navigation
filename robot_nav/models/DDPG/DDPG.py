@@ -254,8 +254,8 @@ class DDPG(object):
             state = torch.Tensor(batch_states).to(self.device)
             next_state = torch.Tensor(batch_next_states).to(self.device)
             action = torch.Tensor(batch_actions).to(self.device)
-            reward = torch.Tensor(batch_rewards).to(self.device)
-            done = torch.Tensor(batch_dones).to(self.device)
+            reward = torch.Tensor(batch_rewards).to(self.device).reshape(-1, 1)
+            done = torch.Tensor(batch_dones).to(self.device).reshape(-1, 1)
 
             # Obtain the estimated action from the next state by using the actor-target
             next_action = self.actor_target(next_state)

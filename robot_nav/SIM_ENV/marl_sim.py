@@ -8,10 +8,10 @@ from robot_nav.SIM_ENV.sim_env import SIM_ENV
 
 class MARL_SIM(SIM_ENV):
     """
-    A simulation environment interface for robot navigation using IRSim.
+    A simulation environment interface for robot navigation using IRSim in MARL setting.
 
     This class wraps around the IRSim environment and provides methods for stepping,
-    resetting, and interacting with a mobile robot, including reward computation.
+    resetting, and interacting with mobile robots, including reward computation.
 
     Attributes:
         env (object): The simulation environment instance from IRSim.
@@ -33,6 +33,8 @@ class MARL_SIM(SIM_ENV):
         robot_info = self.env.get_robot_info(0)
         self.robot_goal = robot_info.goal
         self.num_robots = len(self.env.robot_list)
+        self.x_range = self.env._world.x_range
+        self.y_range = self.env._world.y_range
 
     def step(self, action, connection, combined_weights=None):
         """
@@ -46,7 +48,6 @@ class MARL_SIM(SIM_ENV):
             (tuple): Contains the latest LIDAR scan, distance to goal, cosine and sine of angle to goal,
                    collision flag, goal reached flag, applied action, and computed reward.
         """
-        # action = [[lin_velocity, ang_velocity], [lin_velocity, ang_velocity], [lin_velocity, ang_velocity], [lin_velocity, ang_velocity], [lin_velocity, ang_velocity]]
         self.env.step(action_id=[i for i in range(self.num_robots)], action=action)
         self.env.render()
 
@@ -139,8 +140,8 @@ class MARL_SIM(SIM_ENV):
                     obstacle_list=self.env.obstacle_list,
                     init=True,
                     range_limits=[
-                        [1, 1, -3.141592653589793],
-                        [11, 11, 3.141592653589793],
+                        [self.x_range[0] + 1, self.y_range[0] + 1, -3.141592653589793],
+                        [self.x_range[1] - 1, self.y_range[1] - 1, 3.141592653589793],
                     ],
                 )
 
@@ -209,8 +210,8 @@ class MARL_SIM(SIM_ENV):
             if random_obstacle_ids is None:
                 random_obstacle_ids = [i + self.num_robots for i in range(7)]
             self.env.random_obstacle_position(
-                range_low=[0, 0, -3.14],
-                range_high=[12, 12, 3.14],
+                range_low=[self.x_range[0], self.y_range[0], -3.14],
+                range_high=[self.x_range[1], self.y_range[1], 3.14],
                 ids=random_obstacle_ids,
                 non_overlapping=True,
             )
@@ -221,8 +222,8 @@ class MARL_SIM(SIM_ENV):
                     obstacle_list=self.env.obstacle_list,
                     init=True,
                     range_limits=[
-                        [1, 1, -3.141592653589793],
-                        [11, 11, 3.141592653589793],
+                        [self.x_range[0] + 1, self.y_range[0] + 1, -3.141592653589793],
+                        [self.x_range[1] - 1, self.y_range[1] - 1, 3.141592653589793],
                     ],
                 )
             else:
@@ -251,7 +252,7 @@ class MARL_SIM(SIM_ENV):
         )
 
     @staticmethod
-    def get_reward(goal, collision, action, closest_robots, distance):
+    def get_reward(goal, collision, action, closest_robots, distance, phase=1):
         """
         Calculate the reward for the current step.
 
@@ -259,36 +260,41 @@ class MARL_SIM(SIM_ENV):
             goal (bool): Whether the goal has been reached.
             collision (bool): Whether a collision occurred.
             action (list): The action taken [linear velocity, angular velocity].
-            laser_scan (list): The LIDAR scan readings.
+            closest_robots (list): Distances to the closest robots.
+            distance (float): Distance to goal.
+            phase (int, optional): Reward function phase. Defaults to 1.
 
         Returns:
             (float): Computed reward for the current state.
         """
 
-        # phase1
-        if goal:
-            return 100.0
-        elif collision:
-            return -100.0 * 3 * action[0]
-        else:
-            r_dist = 1.5 / distance
-            cl_pen = 0
-            for rob in closest_robots:
-                add = 1.5 - rob if rob < 1.5 else 0
-                cl_pen += add
+        match phase:
+            case 1:
+                if goal:
+                    return 100.0
+                elif collision:
+                    return -100.0 * 3 * action[0]
+                else:
+                    r_dist = 1.5 / distance
+                    cl_pen = 0
+                    for rob in closest_robots:
+                        add = 1.5 - rob if rob < 1.5 else 0
+                        cl_pen += add
 
-            return action[0] - 0.5 * abs(action[1]) - cl_pen + r_dist
+                    return action[0] - 0.5 * abs(action[1]) - cl_pen + r_dist
 
-        # phase2
-        # if goal:
-        #     return 70.0
-        # elif collision:
-        #     return -100.0 * 3 * action[0]
-        # else:
-        #     r_dist = 1.5 / distance
-        #     cl_pen = 0
-        #     for rob in closest_robots:
-        #         add = (3 - rob)**2 if rob < 3 else 0
-        #         cl_pen += add
-        #
-        #     return -0.5 * abs(action[1]) - cl_pen
+            case 2:
+                if goal:
+                    return 70.0
+                elif collision:
+                    return -100.0 * 3 * action[0]
+                else:
+                    cl_pen = 0
+                    for rob in closest_robots:
+                        add = (3 - rob) ** 2 if rob < 3 else 0
+                        cl_pen += add
+
+                    return -0.5 * abs(action[1]) - cl_pen
+
+            case _:
+                raise ValueError("Unknown reward phase")

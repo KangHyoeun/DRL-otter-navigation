@@ -215,6 +215,9 @@ class TD3(object):
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
+        bce_weight=0.1,
+        entropy_weight=1,
+        connection_proximity_threshold=4,
     ):
         av_Q = 0
         max_Q = -inf
@@ -298,19 +301,16 @@ class TD3(object):
                 current_Q2, target_Q
             )
 
-            proximity_threshold = 4  # You may need to adjust this
-            targets = (unnorm_rel_dist.flatten() < proximity_threshold).float()
+            targets = (
+                unnorm_rel_dist.flatten() < connection_proximity_threshold
+            ).float()
             flat_logits = hard_logits.flatten()
             bce_loss = F.binary_cross_entropy_with_logits(flat_logits, targets)
 
-            bce_weight = 0.1
             av_critic_bce_loss.append(bce_loss)
 
-            critic_entropy_weight = 1  # or tuneable
             total_loss = (
-                critic_loss
-                - critic_entropy_weight * mean_entropy
-                + bce_weight * bce_loss
+                critic_loss - entropy_weight * mean_entropy + bce_weight * bce_loss
             )
             av_critic_entropy.append(mean_entropy)
 
@@ -328,20 +328,18 @@ class TD3(object):
                 action, hard_logits, unnorm_rel_dist, mean_entropy, hard_weights, _ = (
                     self.actor(state, detach_attn=False)
                 )
-                targets = (unnorm_rel_dist.flatten() < proximity_threshold).float()
+                targets = (
+                    unnorm_rel_dist.flatten() < connection_proximity_threshold
+                ).float()
                 flat_logits = hard_logits.flatten()
                 bce_loss = F.binary_cross_entropy_with_logits(flat_logits, targets)
 
-                bce_weight = 0.1
                 av_actor_bce_loss.append(bce_loss)
 
                 actor_Q, _, _, _, _, _ = self.critic(state, action)
                 actor_loss = -actor_Q.mean()
-                actor_entropy_weight = 0.05
                 total_loss = (
-                    actor_loss
-                    - actor_entropy_weight * mean_entropy
-                    + bce_weight * bce_loss
+                    actor_loss - entropy_weight * mean_entropy + bce_weight * bce_loss
                 )
                 av_actor_entropy.append(mean_entropy)
 
@@ -458,9 +456,7 @@ class TD3(object):
             poses (list): Each agent's global pose [x, y, theta].
             distance, cos, sin: Unused, can be removed or ignored.
             collision (list): Collision flags per agent.
-            goal (list): Goal reached flags per agent.
             action (list): Last action taken [lin_vel, ang_vel].
-            positions (list): Extra features (e.g., neighbors).
             goal_positions (list): Each agent's goal [x, y].
 
         Returns:
@@ -483,7 +479,7 @@ class TD3(object):
             heading_sin = np.sin(theta)
 
             # Last velocity
-            lin_vel = act[0] * 2  # Assuming original range [-0.5, 0.5]
+            lin_vel = act[0] * 2  # Assuming original range [0, 0.5]
             ang_vel = (act[1] + 1) / 2  # Assuming original range [-1, 1]
 
             # Final state vector

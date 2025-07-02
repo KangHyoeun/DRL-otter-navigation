@@ -1,8 +1,8 @@
 world:
   height: 12  # the height of the world
   width: 12   # the height of the world
-  step_time: 0.3  # 10Hz calculate each step
-  sample_time: 0.3  # 10 Hz for render and data extraction
+  step_time: 0.3  # Calculate each step
+  sample_time: 0.3  # For render and data extraction
   collision_mode: 'reactive'
 
 robot:
@@ -20,8 +20,3 @@ robot:
 
     plot:
       show_trajectory: False
-
-#obstacle:
-#  - shape: { name: 'linestring', vertices: [ [ 0, 0 ], [ 12, 0 ], [ 12, 12 ], [ 0, 12 ],[ 0, 0 ]  ] }  # vertices
-#    kinematics: {name: 'static'}
-#    state: [ 0, 0, 0 ]
