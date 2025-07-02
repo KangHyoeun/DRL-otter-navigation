@@ -1,16 +1,11 @@
-from robot_nav.models.TD3.TD3 import TD3
-from robot_nav.models.DDPG.DDPG import DDPG
 from robot_nav.models.SAC.SAC import SAC
-from robot_nav.models.HCM.hardcoded_model import HCM
-from robot_nav.models.PPO.PPO import PPO
-from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 import statistics
 import numpy as np
 import tqdm
 import matplotlib.pyplot as plt
 
 import torch
-from sim import SIM_ENV
+from robot_nav.SIM_ENV.sim import SIM
 
 
 def main(args=None):
@@ -34,7 +29,7 @@ def main(args=None):
         model_name="SAC",
     )  # instantiate a model
 
-    sim = SIM_ENV(
+    sim = SIM(
         world_file="eval_world.yaml", disable_plotting=False
     )  # instantiate environment
 

@@ -1,13 +1,8 @@
-from robot_nav.models.TD3.TD3 import TD3
-from robot_nav.models.DDPG.DDPG import DDPG
-from robot_nav.models.SAC.SAC import SAC
-from robot_nav.models.HCM.hardcoded_model import HCM
-from robot_nav.models.PPO.PPO import PPO
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 
 import torch
 import numpy as np
-from sim import SIM_ENV
+from robot_nav.SIM_ENV.sim import SIM
 from utils import get_buffer
 
 
@@ -46,7 +41,9 @@ def main(args=None):
         model_name="CNNTD3",
     )  # instantiate a model
 
-    sim = SIM_ENV(world_file="multi_robot_world.yaml",disable_plotting=False)  # instantiate environment
+    sim = SIM(
+        world_file="robot_world.yaml", disable_plotting=False
+    )  # instantiate environment
     replay_buffer = get_buffer(
         model,
         sim,

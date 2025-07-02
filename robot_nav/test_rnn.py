@@ -4,7 +4,7 @@ from robot_nav.models.RCPG.RCPG import RCPG
 
 import torch
 import numpy as np
-from sim import SIM_ENV
+from robot_nav.SIM_ENV.sim import SIM
 import yaml
 
 
@@ -27,7 +27,7 @@ def main(args=None):
         load_model=True,
     )  # instantiate a model
 
-    sim = SIM_ENV(world_file="eval_world.yaml")  # instantiate environment
+    sim = SIM(world_file="eval_world.yaml")  # instantiate environment
     with open("robot_nav/eval_points.yaml") as file:
         points = yaml.safe_load(file)
     robot_poses = points["robot"]["poses"]

@@ -6,10 +6,11 @@ from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 from robot_nav.models.SAC.SAC import SAC
 from robot_nav.models.DDPG.DDPG import DDPG
 from robot_nav.utils import get_buffer
-from robot_nav.sim import SIM_ENV
+from robot_nav.SIM_ENV.sim import SIM
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 
 @pytest.mark.parametrize(
     "model, state_dim",
@@ -31,7 +32,7 @@ def test_models(model, state_dim):
         load_model=False,
     )  # instantiate a model
 
-    sim = SIM_ENV
+    sim = SIM
 
     prefilled_buffer = get_buffer(
         model=test_model,
@@ -71,7 +72,7 @@ def test_max_bound_models(model, state_dim):
         use_max_bound=True,
     )  # instantiate a model
 
-    sim = SIM_ENV
+    sim = SIM
 
     prefilled_buffer = get_buffer(
         model=test_model,

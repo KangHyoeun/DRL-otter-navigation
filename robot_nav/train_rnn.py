@@ -5,7 +5,7 @@ import torch
 import numpy as np
 
 
-from sim import SIM_ENV
+from robot_nav.SIM_ENV.sim import SIM
 from utils import get_buffer
 
 
@@ -47,7 +47,7 @@ def main(args=None):
         rnn="gru",
     )  # instantiate a model
 
-    sim = SIM_ENV()  # instantiate environment
+    sim = SIM()  # instantiate environment
     replay_buffer = get_buffer(
         model,
         sim,
