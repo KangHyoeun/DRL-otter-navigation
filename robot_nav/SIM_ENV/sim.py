@@ -2,11 +2,10 @@ import irsim
 import numpy as np
 import random
 
-import shapely
-from irsim.lib.handler.geometry_handler import GeometryFactory
+from robot_nav.SIM_ENV.sim_env import SIM_ENV
 
 
-class SIM_ENV:
+class SIM(SIM_ENV):
     """
     A simulation environment interface for robot navigation using IRSim.
 
@@ -120,24 +119,6 @@ class SIM_ENV:
             lin_velocity=action[0], ang_velocity=action[1]
         )
         return latest_scan, distance, cos, sin, False, False, action, reward
-
-    @staticmethod
-    def cossin(vec1, vec2):
-        """
-        Compute the cosine and sine of the angle between two 2D vectors.
-
-        Args:
-            vec1 (list): First 2D vector.
-            vec2 (list): Second 2D vector.
-
-        Returns:
-            (tuple): (cosine, sine) of the angle between the vectors.
-        """
-        vec1 = vec1 / np.linalg.norm(vec1)
-        vec2 = vec2 / np.linalg.norm(vec2)
-        cos = np.dot(vec1, vec2)
-        sin = vec1[0] * vec2[1] - vec1[1] * vec2[0]
-        return cos, sin
 
     @staticmethod
     def get_reward(goal, collision, action, laser_scan):

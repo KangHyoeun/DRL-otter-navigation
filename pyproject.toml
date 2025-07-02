@@ -16,7 +16,7 @@ dependencies = [
     "mkdocs (>=1.6.1,<2.0.0)",
     "mkdocstrings[python] (>=0.29.1,<0.30.0)",
     "mkdocs-material (>=9.6.11,<10.0.0)",
-    "scipy (>=1.15.2,<2.0.0)"
+    "scipy (>=1.15.2,<2.0.0)",
 ]
 
 [tool.pytest.ini_options]

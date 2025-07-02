@@ -1,13 +1,8 @@
 from models.TD3.TD3 import TD3
-from models.DDPG.DDPG import DDPG
-from models.SAC.SAC import SAC
-from models.HCM.hardcoded_model import HCM
-from models.PPO.PPO import PPO
-from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 
 import torch
 import numpy as np
-from sim import SIM_ENV
+from robot_nav.SIM_ENV.sim import SIM
 import yaml
 
 
@@ -31,7 +26,7 @@ def main(args=None):
         model_name="TD3",
     )  # instantiate a model
 
-    sim = SIM_ENV(world_file="eval_world.yaml")  # instantiate environment
+    sim = SIM(world_file="eval_world.yaml")  # instantiate environment
     with open("robot_nav/eval_points.yaml") as file:
         points = yaml.safe_load(file)
     robot_poses = points["robot"]["poses"]

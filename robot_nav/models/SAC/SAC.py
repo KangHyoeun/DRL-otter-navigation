@@ -346,8 +346,8 @@ class SAC(object):
         state = torch.Tensor(batch_states).to(self.device)
         next_state = torch.Tensor(batch_next_states).to(self.device)
         action = torch.Tensor(batch_actions).to(self.device)
-        reward = torch.Tensor(batch_rewards).to(self.device)
-        done = torch.Tensor(batch_dones).to(self.device)
+        reward = torch.Tensor(batch_rewards).to(self.device).reshape(-1, 1)
+        done = torch.Tensor(batch_dones).to(self.device).reshape(-1, 1)
         self.train_metrics_dict["train/batch_reward_av"].append(
             batch_rewards.mean().item()
         )

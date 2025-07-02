@@ -268,8 +268,8 @@ class TD3(object):
             state = torch.Tensor(batch_states).to(self.device)
             next_state = torch.Tensor(batch_next_states).to(self.device)
             action = torch.Tensor(batch_actions).to(self.device)
-            reward = torch.Tensor(batch_rewards).to(self.device)
-            done = torch.Tensor(batch_dones).to(self.device)
+            reward = torch.Tensor(batch_rewards).to(self.device).reshape(-1, 1)
+            done = torch.Tensor(batch_dones).to(self.device).reshape(-1, 1)
 
             # Obtain the estimated action from the next state by using the actor-target
             next_action = self.actor_target(next_state)
@@ -445,7 +445,7 @@ class TD3(object):
         ang_vel = (action[1] + 1) / 2
         state = min_values + [distance, cos, sin] + [lin_vel, ang_vel]
 
-        assert len(state) == self.state_dim
+        assert len(state) == self.state_dim, f"{len(state), self.state_dim}"
         terminal = 1 if collision or goal else 0
 
         return state, terminal

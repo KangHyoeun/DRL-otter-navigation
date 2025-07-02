@@ -4,9 +4,10 @@ from robot_nav.models.SAC.SAC import SAC
 from robot_nav.models.PPO.PPO import PPO, RolloutBuffer
 from robot_nav.models.RCPG.RCPG import RCPG
 from robot_nav.utils import get_buffer, RolloutReplayBuffer, ReplayBuffer
-from robot_nav.sim import SIM_ENV
+from robot_nav.SIM_ENV.sim import SIM
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 
 def test_buffer():
     model = SAC(
@@ -18,7 +19,7 @@ def test_buffer():
         load_model=False,
     )  # instantiate a model
 
-    sim = SIM_ENV
+    sim = SIM
     buffer = get_buffer(
         model=model,
         sim=sim,
@@ -57,7 +58,7 @@ def test_rollout_buffer():
         load_model=False,
     )  # instantiate a model
 
-    sim = SIM_ENV
+    sim = SIM
     buffer = get_buffer(
         model=model,
         sim=sim,
@@ -95,7 +96,7 @@ def test_ppo_buffer():
         save_every=0,
         load_model=False,
     )
-    sim = SIM_ENV
+    sim = SIM
     buffer = get_buffer(
         model=model,
         sim=sim,
