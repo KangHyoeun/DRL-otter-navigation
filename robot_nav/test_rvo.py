@@ -1,3 +1,11 @@
+import statistics
+
+from tqdm import tqdm
+
+import torch
+import numpy as np
+
+
 import irsim
 import numpy as np
 import random
@@ -6,7 +14,7 @@ import torch
 from robot_nav.SIM_ENV.sim_env import SIM_ENV
 
 
-class MARL_SIM(SIM_ENV):
+class RVO_SIM(SIM_ENV):
     """
     Simulation environment for multi-agent robot navigation using IRSim.
 
@@ -39,7 +47,7 @@ class MARL_SIM(SIM_ENV):
         self.x_range = self.env._world.x_range
         self.y_range = self.env._world.y_range
 
-    def step(self, action, connection, combined_weights=None):
+    def step(self):
         """
         Perform a simulation step for all robots using the provided actions and connections.
 
@@ -62,92 +70,21 @@ class MARL_SIM(SIM_ENV):
                 goal_positions (list): Goal [x, y] for each robot,
             )
         """
-        self.env.step(action_id=[i for i in range(self.num_robots)], action=action)
+        self.env.step()
         self.env.render()
 
-        poses = []
-        distances = []
-        coss = []
-        sins = []
         collisions = []
         goals = []
-        rewards = []
         positions = []
-        goal_positions = []
-        robot_states = [
-            [self.env.robot_list[i].state[0], self.env.robot_list[i].state[1]]
-            for i in range(self.num_robots)
-        ]
         for i in range(self.num_robots):
-
             robot_state = self.env.robot_list[i].state
-            closest_robots = [
-                np.linalg.norm(
-                    [
-                        robot_states[j][0] - robot_state[0],
-                        robot_states[j][1] - robot_state[1],
-                    ]
-                )
-                for j in range(self.num_robots)
-                if j != i
-            ]
-            robot_goal = self.env.robot_list[i].goal
-            goal_vector = [
-                robot_goal[0].item() - robot_state[0].item(),
-                robot_goal[1].item() - robot_state[1].item(),
-            ]
-            distance = np.linalg.norm(goal_vector)
-            goal = self.env.robot_list[i].arrive
-            pose_vector = [np.cos(robot_state[2]).item(), np.sin(robot_state[2]).item()]
-            cos, sin = self.cossin(pose_vector, goal_vector)
-            collision = self.env.robot_list[i].collision
-            action_i = action[i]
-            reward = self.get_reward(
-                goal, collision, action_i, closest_robots, distance
-            )
-
             position = [robot_state[0].item(), robot_state[1].item()]
-            goal_position = [robot_goal[0].item(), robot_goal[1].item()]
+            positions.append(position)
 
-            distances.append(distance)
-            coss.append(cos)
-            sins.append(sin)
+            goal = self.env.robot_list[i].arrive
+            collision = self.env.robot_list[i].collision
             collisions.append(collision)
             goals.append(goal)
-            rewards.append(reward)
-            positions.append(position)
-            poses.append(
-                [robot_state[0].item(), robot_state[1].item(), robot_state[2].item()]
-            )
-            goal_positions.append(goal_position)
-
-            i_probs = torch.sigmoid(
-                connection[i]
-            )  # connection[i] is logits for "connect" per pair
-
-            # Now we need to insert the self-connection (optional, typically skipped)
-            i_connections = i_probs.tolist()
-            i_connections.insert(i, 0)
-            if combined_weights is not None:
-                i_weights = combined_weights[i].tolist()
-                i_weights.insert(i, 0)
-
-            for j in range(self.num_robots):
-                if i_connections[j] > 0.5:
-                    if combined_weights is not None:
-                        weight = i_weights[j]
-                    else:
-                        weight = 1
-                    other_robot_state = self.env.robot_list[j].state
-                    other_pos = [
-                        other_robot_state[0].item(),
-                        other_robot_state[1].item(),
-                    ]
-                    rx = [position[0], other_pos[0]]
-                    ry = [position[1], other_pos[1]]
-                    self.env.draw_trajectory(
-                        np.array([rx, ry]), refresh=True, linewidth=weight*2
-                    )
 
             if goal:
                 self.env.robot_list[i].set_random_goal(
@@ -159,18 +96,7 @@ class MARL_SIM(SIM_ENV):
                     ],
                 )
 
-        return (
-            poses,
-            distances,
-            coss,
-            sins,
-            collisions,
-            goals,
-            action,
-            rewards,
-            positions,
-            goal_positions,
-        )
+        return collisions, goals, positions
 
     def reset(
         self,
@@ -255,70 +181,91 @@ class MARL_SIM(SIM_ENV):
         self.env.reset()
         self.robot_goal = self.env.robot.goal
 
-        action = [[0.0, 0.0] for _ in range(self.num_robots)]
-        con = torch.tensor(
-            [[0.0 for _ in range(self.num_robots - 1)] for _ in range(self.num_robots)]
-        )
-        poses, distance, cos, sin, _, _, action, reward, positions, goal_positions = (
-            self.step(action, con)
-        )
-        return (
-            poses,
-            distance,
-            cos,
-            sin,
-            [False] * self.num_robots,
-            [False] * self.num_robots,
-            action,
-            reward,
-            positions,
-            goal_positions,
-        )
+        _, _, positions= self.step()
+        return [False] * self.num_robots, [False] * self.num_robots, positions
 
-    @staticmethod
-    def get_reward(goal, collision, action, closest_robots, distance, phase=2):
-        """
-        Calculate the reward for a robot given the current state and action.
+    def get_reward(self):
+        pass
 
-        Args:
-            goal (bool): Whether the robot reached its goal.
-            collision (bool): Whether a collision occurred.
-            action (list): [linear_velocity, angular_velocity] applied.
-            closest_robots (list): Distances to the closest other robots.
-            distance (float): Distance to the goal.
-            phase (int, optional): Reward phase/function selector (default: 1).
 
-        Returns:
-            float: Computed reward.
-        """
+def outside_of_bounds(poses):
+    """
+    Check if any robot is outside the defined world boundaries.
 
-        match phase:
-            case 1:
-                if goal:
-                    return 100.0
-                elif collision:
-                    return -100.0 * 3 * action[0]
-                else:
-                    r_dist = 1.5 / distance
-                    cl_pen = 0
-                    for rob in closest_robots:
-                        add = (1.25 - rob) ** 2 if rob < 1.25 else 0
-                        cl_pen += add
+    Args:
+        poses (list): List of [x, y, theta] poses for each robot.
 
-                    return action[0] - 0.5 * abs(action[1]) - cl_pen + r_dist
+    Returns:
+        bool: True if any robot is outside the 21x21 area centered at (6, 6), else False.
+    """
+    outside = False
+    for pose in poses:
+        norm_x = pose[0] - 6
+        norm_y = pose[1] - 6
+        if abs(norm_x) > 10.5 or abs(norm_y) > 10.5:
+            outside = True
+            break
+    return outside
 
-            case 2:
-                if goal:
-                    return 70.0
-                elif collision:
-                    return -100.0 * 3 * action[0]
-                else:
-                    cl_pen = 0
-                    for rob in closest_robots:
-                        add = (3 - rob) ** 2 if rob < 3 else 0
-                        cl_pen += add
 
-                    return -0.5 * abs(action[1]) - cl_pen
+def main(args=None):
+    episode = 0
+    max_steps = 300  # maximum number of steps in single episode
+    steps = 0  # starting step number
+    test_scenarios = 1000
 
-            case _:
-                raise ValueError("Unknown reward phase")
+    # ---- Instantiate simulation environment and model ----
+    sim = RVO_SIM(
+        world_file="multi_robot_world.yaml", disable_plotting=True
+    )  # instantiate environment
+
+
+    running_goals = 0
+    running_collisions = 0
+    running_timesteps = 0
+
+    goals_per_ep = []
+    col_per_ep = []
+    pbar = tqdm(total=test_scenarios)
+    # ---- Main training loop ----
+    while episode < test_scenarios:
+
+        collision, goal, poses = sim.step()  # get data from the environment
+        running_goals += sum(goal)
+        running_collisions += sum(collision)
+
+        running_timesteps += 1
+        outside = outside_of_bounds(poses)
+
+        if (
+            sum(collision)>0.5 or steps == max_steps or outside
+        ):  # reset environment of terminal state reached, or max_steps were taken
+            sim.reset()
+            goals_per_ep.append(running_goals)
+            running_goals = 0
+            col_per_ep.append(running_collisions)
+            running_collisions = 0
+
+            steps = 0
+            episode += 1
+            pbar.update(1)
+        else:
+            steps += 1
+
+
+    goals_per_ep = np.array(goals_per_ep, dtype=np.float32)
+    col_per_ep = np.array(col_per_ep, dtype=np.float32)
+    avg_ep_col = statistics.mean(col_per_ep)
+    avg_ep_col_std = statistics.stdev(col_per_ep)
+    avg_ep_goals = statistics.mean(goals_per_ep)
+    avg_ep_goals_std = statistics.stdev(goals_per_ep)
+
+
+    print(f"avg_ep_col: {avg_ep_col}")
+    print(f"avg_ep_col_std: {avg_ep_col_std}")
+    print(f"avg_ep_goals: {avg_ep_goals}")
+    print(f"avg_ep_goals_std: {avg_ep_goals_std}")
+    print("..............................................")
+
+if __name__ == "__main__":
+    main()

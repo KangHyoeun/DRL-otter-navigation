@@ -7,7 +7,8 @@ import torch.nn.functional as F
 from numpy import inf
 from torch.utils.tensorboard import SummaryWriter
 
-from robot_nav.models.MARL.hardsoftAttention import Attention
+from robot_nav.models.MARL.Attention.g2anet import G2ANet
+from robot_nav.models.MARL.Attention.hardsoftAttention import Attention
 
 
 class Actor(nn.Module):
@@ -23,9 +24,15 @@ class Actor(nn.Module):
         policy_head (nn.Sequential): MLP for mapping attention output to actions.
     """
 
-    def __init__(self, action_dim, embedding_dim):
+    def __init__(self, action_dim, embedding_dim, attention):
         super().__init__()
-        self.attention = Attention(embedding_dim)  # ➊ edge classifier
+        if attention == "hsattention":
+            self.attention = Attention(embedding_dim)
+        elif attention == "g2anet":
+            self.attention = G2ANet(embedding_dim)  # ➊ edge classifier
+        else:
+            raise ValueError("unknown attention mechanism in Actor")
+
 
         # ➋ policy head (everything _after_ attention)
         self.policy_head = nn.Sequential(
@@ -70,10 +77,15 @@ class Critic(nn.Module):
         (Other attributes are MLP layers for twin Q-networks.)
     """
 
-    def __init__(self, action_dim, embedding_dim):
+    def __init__(self, action_dim, embedding_dim, attention):
         super(Critic, self).__init__()
         self.embedding_dim = embedding_dim
-        self.attention = Attention(self.embedding_dim)
+        if attention == "hsattention":
+            self.attention = Attention(embedding_dim)
+        elif attention == "g2anet":
+            self.attention = G2ANet(embedding_dim)  # ➊ edge classifier
+        else:
+            raise ValueError("unknown attention mechanism in Actor")
 
         self.layer_1 = nn.Linear(self.embedding_dim * 2, 400)
         torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
@@ -173,18 +185,21 @@ class TD3(object):
         lr_critic=3e-4,
         save_every=0,
         load_model=False,
-        save_directory=Path("robot_nav/models/MARL/checkpoint"),
+        save_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint"),
         model_name="marlTD3",
         load_model_name=None,
-        load_directory=Path("robot_nav/models/MARL/checkpoint"),
+        load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint"),
+        attention = "hsattention"
     ):
         # Initialize the Actor network
+        if attention not in ["hsattention", "g2anet"]:
+            raise ValueError("unknown attention mechanism specified for TD3 model")
         self.num_robots = num_robots
         self.device = device
-        self.actor = Actor(action_dim, embedding_dim=256).to(
+        self.actor = Actor(action_dim, embedding_dim=256, attention=attention).to(
             self.device
         )  # Using the updated Actor
-        self.actor_target = Actor(action_dim, embedding_dim=256).to(self.device)
+        self.actor_target = Actor(action_dim, embedding_dim=256, attention=attention).to(self.device)
         self.actor_target.load_state_dict(self.actor.state_dict())
 
         self.attn_params = list(self.actor.attention.parameters())
@@ -194,10 +209,10 @@ class TD3(object):
             self.policy_params + self.attn_params, lr=lr_actor
         )  # TD3 policy
 
-        self.critic = Critic(action_dim, embedding_dim=256).to(
+        self.critic = Critic(action_dim, embedding_dim=256, attention=attention).to(
             self.device
         )  # Using the updated Critic
-        self.critic_target = Critic(action_dim, embedding_dim=256).to(self.device)
+        self.critic_target = Critic(action_dim, embedding_dim=256, attention=attention).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = torch.optim.Adam(
             params=self.critic.parameters(), lr=lr_critic
@@ -267,7 +282,7 @@ class TD3(object):
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
-        bce_weight=0.1,
+        bce_weight=0.01,
         entropy_weight=1,
         connection_proximity_threshold=4,
     ):

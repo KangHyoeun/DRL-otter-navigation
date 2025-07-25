@@ -6,10 +6,11 @@ world:
   collision_mode: 'reactive'
 
 robot:
-  - number: 5
+  - number: 14
     kinematics: {name: 'diff'}
-    distribution: {name: 'circle', radius: 4, center: [6, 6]}
+    distribution: {name: 'circle', radius: 5, center: [6, 6]}
     shape: {name: 'circle', radius: 0.2}
+#    behavior: {name: 'rvo', mode: 'rvo', wander: False, neighbor_threshold: 4.0}
     vel_min: [ 0, -1.0 ]
     vel_max: [ 0.5, 1.0 ]
     state: [2, 2, 0, 0]
@@ -19,4 +20,4 @@ robot:
     goal_threshold: 0.3
 
     plot:
-      show_trajectory: True
+      show_trajectory: False

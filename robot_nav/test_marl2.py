@@ -1,12 +1,17 @@
+import statistics
+from pathlib import Path
+
 import irsim
-import numpy as np
-import random
-import torch
+from tqdm import tqdm
 
 from robot_nav.SIM_ENV.sim_env import SIM_ENV
+from robot_nav.models.MARL.marlTD3.marlTD3 import TD3
+
+import torch
+import numpy as np
 
 
-class MARL_SIM(SIM_ENV):
+class CIRCLE_SIM(SIM_ENV):
     """
     Simulation environment for multi-agent robot navigation using IRSim.
 
@@ -34,7 +39,7 @@ class MARL_SIM(SIM_ENV):
             world_file, disable_all_plot=disable_plotting, display=display
         )
         robot_info = self.env.get_robot_info(0)
-        self.robot_goal = robot_info.goal
+        # self.robot_goal = robot_info.goal
         self.num_robots = len(self.env.robot_list)
         self.x_range = self.env._world.x_range
         self.y_range = self.env._world.y_range
@@ -62,7 +67,8 @@ class MARL_SIM(SIM_ENV):
                 goal_positions (list): Goal [x, y] for each robot,
             )
         """
-        self.env.step(action_id=[i for i in range(self.num_robots)], action=action)
+        act = [[0, 0]  if self.env.robot_list[i].arrive else action[i] for i in range(len(action)) ]
+        self.env.step(action_id=[i for i in range(self.num_robots)], action=act)
         self.env.render()
 
         poses = []
@@ -146,18 +152,18 @@ class MARL_SIM(SIM_ENV):
                     rx = [position[0], other_pos[0]]
                     ry = [position[1], other_pos[1]]
                     self.env.draw_trajectory(
-                        np.array([rx, ry]), refresh=True, linewidth=weight*2
+                        np.array([rx, ry]), refresh=True, linewidth=weight
                     )
 
-            if goal:
-                self.env.robot_list[i].set_random_goal(
-                    obstacle_list=self.env.obstacle_list,
-                    init=True,
-                    range_limits=[
-                        [self.x_range[0] + 1, self.y_range[0] + 1, -3.141592653589793],
-                        [self.x_range[1] - 1, self.y_range[1] - 1, 3.141592653589793],
-                    ],
-                )
+            # if goal:
+            #     self.env.robot_list[i].set_random_goal(
+            #         obstacle_list=self.env.obstacle_list,
+            #         init=True,
+            #         range_limits=[
+            #             [self.x_range[0] + 1, self.y_range[0] + 1, -3.141592653589793],
+            #             [self.x_range[1] - 1, self.y_range[1] - 1, 3.141592653589793],
+            #         ],
+            #     )
 
         return (
             poses,
@@ -202,56 +208,6 @@ class MARL_SIM(SIM_ENV):
                 goal_positions (list): Initial goal [x, y] for each robot,
             )
         """
-        if robot_state is None:
-            robot_state = [[random.uniform(3, 9)], [random.uniform(3, 9)], [0]]
-
-        init_states = []
-        for robot in self.env.robot_list:
-            conflict = True
-            while conflict:
-                conflict = False
-                robot_state = [
-                    [random.uniform(3, 9)],
-                    [random.uniform(3, 9)],
-                    [random.uniform(-3.14, 3.14)],
-                ]
-                pos = [robot_state[0][0], robot_state[1][0]]
-                for loc in init_states:
-                    vector = [
-                        pos[0] - loc[0],
-                        pos[1] - loc[1],
-                    ]
-                    if np.linalg.norm(vector) < 0.6:
-                        conflict = True
-            init_states.append(pos)
-
-            robot.set_state(
-                state=np.array(robot_state),
-                init=True,
-            )
-
-        if random_obstacles:
-            if random_obstacle_ids is None:
-                random_obstacle_ids = [i + self.num_robots for i in range(7)]
-            self.env.random_obstacle_position(
-                range_low=[self.x_range[0], self.y_range[0], -3.14],
-                range_high=[self.x_range[1], self.y_range[1], 3.14],
-                ids=random_obstacle_ids,
-                non_overlapping=True,
-            )
-
-        for robot in self.env.robot_list:
-            if robot_goal is None:
-                robot.set_random_goal(
-                    obstacle_list=self.env.obstacle_list,
-                    init=True,
-                    range_limits=[
-                        [self.x_range[0] + 1, self.y_range[0] + 1, -3.141592653589793],
-                        [self.x_range[1] - 1, self.y_range[1] - 1, 3.141592653589793],
-                    ],
-                )
-            else:
-                self.env.robot.set_goal(np.array(robot_goal), init=True)
         self.env.reset()
         self.robot_goal = self.env.robot.goal
 
@@ -302,7 +258,7 @@ class MARL_SIM(SIM_ENV):
                     r_dist = 1.5 / distance
                     cl_pen = 0
                     for rob in closest_robots:
-                        add = (1.25 - rob) ** 2 if rob < 1.25 else 0
+                        add = 1.5 - rob if rob < 1.5 else 0
                         cl_pen += add
 
                     return action[0] - 0.5 * abs(action[1]) - cl_pen + r_dist
@@ -322,3 +278,206 @@ class MARL_SIM(SIM_ENV):
 
             case _:
                 raise ValueError("Unknown reward phase")
+
+
+
+def outside_of_bounds(poses):
+    """
+    Check if any robot is outside the defined world boundaries.
+
+    Args:
+        poses (list): List of [x, y, theta] poses for each robot.
+
+    Returns:
+        bool: True if any robot is outside the 21x21 area centered at (6, 6), else False.
+    """
+    outside = False
+    for pose in poses:
+        norm_x = pose[0] - 6
+        norm_y = pose[1] - 6
+        if abs(norm_x) > 10.5 or abs(norm_y) > 10.5:
+            outside = True
+            break
+    return outside
+
+
+def main(args=None):
+    """Main training function"""
+
+    # ---- Hyperparameters and setup ----
+    action_dim = 2  # number of actions produced by the model
+    max_action = 1  # maximum absolute value of output actions
+    state_dim = 11  # number of input values in the neural network (vector length of state input)
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )  # using cuda if it is available, cpu otherwise
+    epoch = 1  # starting epoch number
+    episode = 0
+    max_steps = 600  # maximum number of steps in single episode
+    steps = 0  # starting step number
+    save_every = 5  # save the model every n training cycles
+    test_scenarios = 100
+
+    # ---- Instantiate simulation environment and model ----
+    sim = CIRCLE_SIM(
+        world_file="reverse_hallway_world.yaml", disable_plotting=True
+    )  # instantiate environment
+
+    model = TD3(
+        state_dim=state_dim,
+        action_dim=action_dim,
+        max_action=max_action,
+        num_robots=sim.num_robots,
+        device=device,
+        save_every=save_every,
+        load_model=True,
+        model_name="test",
+        load_model_name="g2anet_phase2_exp5",
+        load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint/g2anet_phase2")
+        # model_name="test",
+        # load_model_name="phase2_exp5",
+        # load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint/hsAttention_phase2")
+    )  # instantiate a model
+
+    connections = torch.tensor(
+        [[0.0 for _ in range(sim.num_robots - 1)] for _ in range(sim.num_robots)]
+    )
+
+    # ---- Take initial step in environment ----
+    poses, distance, cos, sin, collision, goal, a, reward, positions, goal_positions = (
+        sim.step([[0, 0] for _ in range(sim.num_robots)], connections)
+    )  # get the initial step state
+    running_goals = 0
+    running_reward = 0
+    running_collisions = 0
+    running_timesteps = 0
+    ran_out_of_time = 0
+
+    reward_per_ep = []
+    goals_per_ep = []
+    col_per_ep = []
+    lin_actions = []
+    ang_actions = []
+    entropy_list = []
+    timesteps_per_ep = []
+    epsilon = 1e-6
+    pbar = tqdm(total=test_scenarios)
+    # ---- Main training loop ----
+    while episode < test_scenarios:
+        # state, terminal = model.prepare_state(
+        #     poses, distance, cos, sin, collision, a, goal_positions
+        # )  # get state a state representation from returned data from the environment
+        state, terminal = model.prepare_state(
+            poses, distance, cos, sin, collision, a, goal_positions
+        )
+        action, connection, combined_weights = model.get_action(
+            np.array(state), False
+        )  # get an action from the model
+
+        combined_weights_norm = combined_weights / (
+                combined_weights.sum(dim=-1, keepdim=True) + epsilon
+        )
+
+        # Entropy for analysis/logging
+        entropy = (
+            -(combined_weights_norm * (combined_weights_norm + epsilon).log())
+            .sum(dim=-1)
+            .mean()
+        ).data.cpu().numpy()
+        entropy_list.append(entropy)
+
+
+        a_in = [
+            [(a[0] + 1) / 4, a[1]] for a in action
+        ]  # clip linear velocity to [0, 0.5] m/s range
+
+        (
+            poses,
+            distance,
+            cos,
+            sin,
+            collision,
+            goal,
+            a,
+            reward,
+            positions,
+            goal_positions,
+        ) = sim.step(
+            a_in, connection, combined_weights
+        )  # get data from the environment
+        running_goals += sum(goal)
+        running_collisions += sum(collision)
+        running_reward += sum(reward)
+        running_timesteps += 1
+        for j in range(len(a_in)):
+            lin_actions.append(a_in[j][0].item())
+            ang_actions.append(a_in[j][1].item())
+        outside = outside_of_bounds(poses)
+
+        if (
+            sum(collision)>0.5 or steps == max_steps or int(sum(goal)) == len(goal)
+        ):  # reset environment of terminal state reached, or max_steps were taken
+            (
+                poses,
+                distance,
+                cos,
+                sin,
+                collision,
+                goal,
+                a,
+                reward,
+                positions,
+                goal_positions,
+            ) = sim.reset()
+            reward_per_ep.append(running_reward)
+            running_reward = 0
+            goals_per_ep.append(running_goals)
+            running_goals = 0
+            col_per_ep.append(running_collisions)
+            running_collisions = 0
+            timesteps_per_ep.append(running_timesteps)
+            running_timesteps = 0
+            if steps == max_steps:
+                ran_out_of_time += 1
+
+            steps = 0
+            episode += 1
+            pbar.update(1)
+        else:
+            steps += 1
+
+    cols = sum(col_per_ep) / 2
+    reward_per_ep = np.array(reward_per_ep, dtype=np.float32)
+    goals_per_ep = np.array(goals_per_ep, dtype=np.float32)
+    col_per_ep = np.array(col_per_ep, dtype=np.float32)
+    lin_actions = np.array(lin_actions, dtype=np.float32)
+    ang_actions = np.array(ang_actions, dtype=np.float32)
+    entropy = np.array(entropy_list, dtype=np.float32)
+    avg_ep_reward = statistics.mean(reward_per_ep)
+    avg_ep_reward_std = statistics.stdev(reward_per_ep)
+    avg_ep_col = statistics.mean(col_per_ep)
+    avg_ep_col_std = statistics.stdev(col_per_ep)
+    avg_ep_goals = statistics.mean(goals_per_ep)
+    avg_ep_goals_std = statistics.stdev(goals_per_ep)
+    mean_lin_action = statistics.mean(lin_actions)
+    lin_actions_std = statistics.stdev(lin_actions)
+    mean_ang_action = statistics.mean(ang_actions)
+    ang_actions_std = statistics.stdev(ang_actions)
+    mean_entropy = statistics.mean(entropy)
+    mean_entropy_std = statistics.stdev(entropy)
+    t_per_ep = np.array(timesteps_per_ep, dtype=np.float32)
+    avg_ep_t = statistics.mean(t_per_ep)
+    avg_ep_t_std = statistics.stdev(t_per_ep)
+
+    print(f"avg_ep_col: {avg_ep_col}")
+    print(f"avg_ep_col_std: {avg_ep_col_std}")
+    print(f"success rate: {test_scenarios - cols}")
+    print(f"avg_ep_goals: {avg_ep_goals}")
+    print(f"avg_ep_goals_std: {avg_ep_goals_std}")
+    print(f"avg_ep_t: {avg_ep_t}")
+    print(f"avg_ep_t_std: {avg_ep_t_std}")
+    print(f"ran out of time: {ran_out_of_time}")
+    print("..............................................")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,24 @@
+world:
+  height: 12  # the height of the world
+  width: 12   # the height of the world
+  step_time: 0.3  # Calculate each step
+  sample_time: 0.3  # For render and data extraction
+  collision_mode: 'reactive'
+
+robot:
+  - number: 14
+    kinematics: {name: 'diff'}
+    distribution: {name: 'manual'}
+    shape: {name: 'circle', radius: 0.2}
+#    behavior: {name: 'rvo', mode: 'rvo', wander: False, neighbor_threshold: 4.0}
+    vel_min: [ 0, -1.0 ]
+    vel_max: [ 0.5, 1.0 ]
+    state: [[1, 1, 1.57], [1, 10, -1.57], [2, 3, 1.57], [2, 7, -1.57], [3, 1, 1.57], [3, 10, -1.57], [4, 3, 1.57], [4, 7, -1.57], [5, 1, 1.57], [5, 10, -1.57], [6, 3, 1.57], [6, 7, -1.57], [7, 1, 1.57], [7, 10, -1.57], [8, 3, 1.57], [8, 7, -1.57], [9, 1, 1.57], [9, 10, -1.57], [10, 3, 1.57], [10, 7, -1.57]]
+    goal: [[10, 7, 0], [10, 3, 0], [9, 10, 0], [9, 1, 0], [8, 7, 0], [8, 3, 0], [7, 10, 0], [7, 1, 0], [6, 7, 0], [6, 3, 0], [5, 10, 0], [5, 1, 0], [4, 7, 0], [4, 3, 0], [3, 10, 0], [3, 1, 0], [2, 7, 0], [2, 3, 0], [1, 10, 0], [1, 1, 0]]
+    color: ['royalblue', 'red', 'green', 'orange', 'purple', 'yellow', 'cyan', 'magenta', 'lime', 'pink', 'brown', 'black', 'bisque', 'slategrey', 'lavender', 'hotpink', 'navy', 'gold', 'olive', 'peru']
+    arrive_mode: position
+    goal_threshold: 0.3
+
+    plot:
+      show_trajectory: False
+#      show_trail: True

@@ -2,7 +2,6 @@ import torch
 from torch import nn
 
 import robot_nav.models.SAC.SAC_utils as utils
-from robot_nav.models.MARL.Attention.g2anet import G2ANet
 
 
 class DoubleQCritic(nn.Module):
@@ -26,7 +25,7 @@ class DoubleQCritic(nn.Module):
         Q1 and Q2 share the same architecture but have separate weights.
         """
         super().__init__()
-        self.attention = G2ANet(hidden_dim)
+
         self.Q1 = utils.mlp(obs_dim + action_dim, hidden_dim, 1, hidden_depth)
         self.Q2 = utils.mlp(obs_dim + action_dim, hidden_dim, 1, hidden_depth)
 
@@ -45,23 +44,15 @@ class DoubleQCritic(nn.Module):
             Tuple[Tensor, Tensor]: Q1 and Q2 values, each of shape (batch_size, 1).
         """
         assert obs.size(0) == action.size(0)
-        (
-            embedding_with_attention,
-            hard_logits,
-            unnorm_rel_dist,
-            mean_entropy,
-            hard_weights,
-            _,
-        ) = self.attention(obs)
 
-        obs_action = torch.cat([embedding_with_attention, action], dim=-1)
+        obs_action = torch.cat([obs, action], dim=-1)
         q1 = self.Q1(obs_action)
         q2 = self.Q2(obs_action)
 
         self.outputs["q1"] = q1
         self.outputs["q2"] = q2
 
-        return q1, q2, mean_entropy, hard_logits, unnorm_rel_dist, hard_weights
+        return q1, q2
 
     def log(self, writer, step):
         """
