@@ -276,7 +276,7 @@ class MARL_SIM(SIM_ENV):
         )
 
     @staticmethod
-    def get_reward(goal, collision, action, closest_robots, distance, phase=2):
+    def get_reward(goal, collision, action, closest_robots, distance, phase=1):
         """
         Calculate the reward for a robot given the current state and action.
 

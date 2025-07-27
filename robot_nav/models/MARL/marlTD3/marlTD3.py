@@ -282,7 +282,7 @@ class TD3(object):
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
-        bce_weight=0.01,
+        bce_weight=0.1,
         entropy_weight=1,
         connection_proximity_threshold=4,
     ):

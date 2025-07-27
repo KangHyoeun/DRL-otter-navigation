@@ -66,8 +66,8 @@ def main(args=None):
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="g2anet001_phase1",
-        load_model_name="g2anet_phase1",
+        model_name="update_isshsa",
+        load_model_name="update_isshsa_phase1",
         load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint")
     )  # instantiate a model
 

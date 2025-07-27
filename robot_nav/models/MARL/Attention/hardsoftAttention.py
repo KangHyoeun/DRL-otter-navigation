@@ -35,6 +35,12 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         self.embedding_dim = embedding_dim
 
+        self.node_update = nn.Sequential(
+            nn.Linear(embedding_dim * 2, embedding_dim),
+            nn.ReLU(),
+            nn.Linear(embedding_dim, embedding_dim),
+        )
+
         self.embedding1 = nn.Linear(5, 128)
         nn.init.kaiming_uniform_(self.embedding1.weight, nonlinearity="leaky_relu")
         self.embedding2 = nn.Linear(128, embedding_dim)
@@ -61,7 +67,7 @@ class Attention(nn.Module):
         )
 
         # Decoder
-        self.decode_1 = nn.Linear(embedding_dim * 2, embedding_dim * 2)
+        self.decode_1 = nn.Linear(embedding_dim, embedding_dim * 2)
         nn.init.kaiming_uniform_(self.decode_1.weight, nonlinearity="leaky_relu")
         self.decode_2 = nn.Linear(embedding_dim * 2, embedding_dim * 2)
         nn.init.kaiming_uniform_(self.decode_2.weight, nonlinearity="leaky_relu")
@@ -185,7 +191,7 @@ class Attention(nn.Module):
         )
 
         # ---- Soft attention computation ----
-        q = self.q(agent_embed)
+        q = self.q(agent_embed).reshape(batch_size * n_agents, -1)
 
         attention_outputs = []
         entropy_list = []
@@ -204,40 +210,36 @@ class Attention(nn.Module):
         )
 
         # Soft attention edge features (include goal polar)
-        soft_edge_features = torch.cat([edge_features, goal_polar], dim=-1)
-        for i in range(n_agents):
-            q_i = q[:, i : i + 1, :]
-            mask = torch.ones(n_agents, dtype=torch.bool, device=edge_features.device)
-            mask[i] = False
-            edge_i_wo_self = soft_edge_features[:, i, mask, :]
-            edge_i_wo_self = edge_i_wo_self.squeeze(1)
-            k = F.leaky_relu(self.k(edge_i_wo_self))
+        soft_edge_features = torch.cat([edge_features, goal_polar], dim=-1).reshape(batch_size * n_agents, n_agents, -1)
+        epsilon = 1e-6
+        for i in range(batch_size * n_agents):
+            q_i = q[i : i + 1, :]
+            h_weights = hard_weights.reshape(batch_size * n_agents, -1)[i]
+            mask = (h_weights > 0.5)
+            val = torch.tensor([False], device=mask.device)
+            mask = torch.cat((mask[:i], val, mask[i:]))
+            combined_weights = torch.zeros_like(mask).float()
+            nr_edges = int(sum(mask))
+            if nr_edges > 0:
+                edge_i_wo_self = soft_edge_features[ i, mask, :]
+                k = F.leaky_relu(self.k(edge_i_wo_self))
 
-            q_i_expanded = q_i.expand(-1, n_agents - 1, -1)
-            attention_input = torch.cat([q_i_expanded, k], dim=-1)
+                q_i_expanded = q_i.expand(nr_edges, -1)
+                attention_input = torch.cat([q_i_expanded, k], dim=-1)
 
-            # Score computation (per pair)
-            scores = self.attn_score_layer(attention_input).transpose(1, 2)
+                # Score computation (per pair)
+                scores = self.attn_score_layer(attention_input).transpose(0,1)
 
-            # Mask using hard attention
-            h_weights = hard_weights[:, i].unsqueeze(1)
-            mask = (h_weights > 0.5).float()
 
-            # All-zero mask handling
-            epsilon = 1e-6
-            mask_sum = mask.sum(dim=-1, keepdim=True)
-            all_zero_mask = mask_sum < epsilon
+                soft_weights = F.softmax(scores, dim=-1)
+                v_j = F.leaky_relu(self.v(edge_i_wo_self))
+                attn_output = (v_j * soft_weights.T).sum(dim=0).unsqueeze(0)
+                q_i = self.node_update(torch.concat([q_i, attn_output], dim=-1))
 
-            # Apply mask to scores
-            masked_scores = scores.masked_fill(mask == 0, float("-inf"))
+                combined_weights[mask] = soft_weights  # (B, 1, N-1)
 
-            # Compute softmax, safely handle all-zero cases
-            soft_weights = F.softmax(masked_scores, dim=-1)
-            soft_weights = torch.where(
-                all_zero_mask, torch.zeros_like(soft_weights), soft_weights
-            )
-
-            combined_weights = soft_weights * mask  # (B, 1, N-1)
+            attention_outputs.append(q_i.squeeze(1))
+            combined_weights = torch.cat((combined_weights[:i], combined_weights[i:]))
             combined_w.append(combined_weights)
 
             # Normalize for entropy calculation
@@ -253,18 +255,14 @@ class Attention(nn.Module):
             )
             entropy_list.append(entropy)
 
-            v_j = F.leaky_relu(self.v(edge_i_wo_self))
-            attn_output = torch.bmm(combined_weights, v_j).squeeze(1)
-            attention_outputs.append(attn_output)
+
 
         comb_w = torch.stack(combined_w, dim=1).reshape(n_agents, -1)
         attn_stack = torch.stack(attention_outputs, dim=1).reshape(
             -1, self.embedding_dim
         )
-        self_embed = agent_embed.reshape(-1, self.embedding_dim)
-        concat_embed = torch.cat([self_embed, attn_stack], dim=-1)
 
-        x = F.leaky_relu(self.decode_1(concat_embed))
+        x = F.leaky_relu(self.decode_1(attn_stack))
         att_embedding = F.leaky_relu(self.decode_2(x))
 
         mean_entropy = torch.stack(entropy_list).mean()
