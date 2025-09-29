@@ -1,4 +1,6 @@
-from robot_nav.models.MARL.marlTD3 import TD3
+from pathlib import Path
+
+from robot_nav.models.MARL.marlTD3.marlTD3 import TD3
 
 import torch
 import numpy as np
@@ -36,7 +38,7 @@ def main(args=None):
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )  # using cuda if it is available, cpu otherwise
-    max_epochs = 600  # max number of epochs
+    max_epochs = 160  # max number of epochs
     epoch = 1  # starting epoch number
     episode = 0  # starting episode number
     train_every_n = 10  # train and update network parameters every n episodes
@@ -53,7 +55,9 @@ def main(args=None):
 
     # ---- Instantiate simulation environment and model ----
     sim = MARL_SIM(
-        world_file="multi_robot_world.yaml", disable_plotting=False
+        world_file="worlds/multi_robot_world.yaml",
+        disable_plotting=True,
+        reward_phase=1,
     )  # instantiate environment
 
     model = TD3(
@@ -64,8 +68,10 @@ def main(args=None):
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="phase1",
-        load_model_name="phase1",
+        model_name="TDR-MARL-train",
+        load_model_name="saved_model",
+        load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint"),
+        attention="iga",
     )  # instantiate a model
 
     # ---- Setup replay buffer and initial connections ----

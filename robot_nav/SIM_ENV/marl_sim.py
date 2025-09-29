@@ -21,13 +21,25 @@ class MARL_SIM(SIM_ENV):
         y_range (tuple): World y-range.
     """
 
-    def __init__(self, world_file="multi_robot_world.yaml", disable_plotting=False):
+    def __init__(
+        self,
+        world_file="multi_robot_world.yaml",
+        disable_plotting=False,
+        reward_phase=1,
+    ):
         """
         Initialize the MARL_SIM environment.
 
         Args:
-            world_file (str, optional): Path to the world configuration YAML file.
-            disable_plotting (bool, optional): If True, disables IRSim rendering and plotting.
+            world_file (str, optional):
+                Path to an IRSim YAML world configuration. Defaults to
+                "multi_robot_world.yaml".
+            disable_plotting (bool, optional):
+                If True, disables all IRSim plotting and display windows.
+                Useful for headless training. Defaults to False.
+            reward_phase (int, optional):
+                Selects the reward function variant used by `get_reward`.
+                Supported values: {1, 2}. Defaults to 1.
         """
         display = False if disable_plotting else True
         self.env = irsim.make(
@@ -38,29 +50,58 @@ class MARL_SIM(SIM_ENV):
         self.num_robots = len(self.env.robot_list)
         self.x_range = self.env._world.x_range
         self.y_range = self.env._world.y_range
+        self.reward_phase = reward_phase
 
     def step(self, action, connection, combined_weights=None):
         """
         Perform a simulation step for all robots using the provided actions and connections.
 
         Args:
-            action (list): List of actions for each robot [[lin_vel, ang_vel], ...].
-            connection (Tensor): Tensor of shape (num_robots, num_robots-1) containing logits indicating connections between robots.
-            combined_weights (Tensor or None, optional): Optional weights for each connection, shape (num_robots, num_robots-1).
+            action (list):
+                A list of length `num_robots`. Each element is
+                `[linear_velocity, angular_velocity]` to be applied to the
+                corresponding robot for this step. Units follow IRSim's
+                kinematics setup (typically m/s and rad/s).
+            connection (Tensor):
+                A torch.Tensor of shape `(num_robots, num_robots-1)` containing
+                *logits* that indicate pairwise connections per robot *without*
+                the self-connection column. This is not used for logic here,
+                but preserved for compatibility (see commented code); you may
+                use it upstream to form `combined_weights`.
+            combined_weights (Tensor or None, optional):
+                A torch.Tensor of shape `(num_robots, num_robots)` **or**
+                `(num_robots, num_robots-1)` that encodes visualization weights
+                for robot-to-robot edges. When provided, edges from robot *i* to
+                *j* are drawn with line width `weight * 2`. If you pass the
+                `(num_robots, num_robots-1)` form, ensure indexing aligns with
+                how you constructed it (self-column typically omitted).
 
         Returns:
-            tuple: (
-                poses (list): List of [x, y, theta] for each robot,
-                distances (list): Distance to goal for each robot,
-                coss (list): Cosine of angle to goal for each robot,
-                sins (list): Sine of angle to goal for each robot,
-                collisions (list): Collision status for each robot,
-                goals (list): Goal reached status for each robot,
-                action (list): Actions applied,
-                rewards (list): Rewards computed,
-                positions (list): Current [x, y] for each robot,
-                goal_positions (list): Goal [x, y] for each robot,
-            )
+            tuple:
+                (
+                    poses (list[list[float]]):
+                        `[x, y, theta]` for each robot after the step.
+                    distances (list[float]):
+                        Euclidean distance from each robot to its goal.
+                    coss (list[float]):
+                        Cosine of the angle between robot heading and goal vector.
+                    sins (list[float]):
+                        Sine of the angle between robot heading and goal vector.
+                    collisions (list[bool]):
+                        Collision flags for each robot, as reported by IRSim.
+                    goals (list[bool]):
+                        Arrival flags for each robot. If True this step, a new
+                        random goal was scheduled for that robot.
+                    action (list):
+                        Echo of the input `action`.
+                    rewards (list[float]):
+                        Per-robot rewards computed by `get_reward(...)`.
+                    positions (list[list[float]]):
+                        `[x, y]` positions for each robot after the step.
+                    goal_positions (list[list[float]]):
+                        `[x, y]` goal coordinates for each robot after any
+                        arrival updates this step.
+                )
         """
         self.env.step(action_id=[i for i in range(self.num_robots)], action=action)
         self.env.render()
@@ -103,7 +144,7 @@ class MARL_SIM(SIM_ENV):
             collision = self.env.robot_list[i].collision
             action_i = action[i]
             reward = self.get_reward(
-                goal, collision, action_i, closest_robots, distance
+                goal, collision, action_i, closest_robots, distance, self.reward_phase
             )
 
             position = [robot_state[0].item(), robot_state[1].item()]
@@ -121,23 +162,14 @@ class MARL_SIM(SIM_ENV):
             )
             goal_positions.append(goal_position)
 
-            i_probs = torch.sigmoid(
-                connection[i]
-            )  # connection[i] is logits for "connect" per pair
-
-            # Now we need to insert the self-connection (optional, typically skipped)
-            i_connections = i_probs.tolist()
-            i_connections.insert(i, 0)
             if combined_weights is not None:
                 i_weights = combined_weights[i].tolist()
-                i_weights.insert(i, 0)
 
             for j in range(self.num_robots):
-                if i_connections[j] > 0.5:
-                    if combined_weights is not None:
-                        weight = i_weights[j]
-                    else:
-                        weight = 1
+                if combined_weights is not None:
+                    weight = i_weights[j]
+                    # else:
+                    #     weight = 1
                     other_robot_state = self.env.robot_list[j].state
                     other_pos = [
                         other_robot_state[0].item(),
@@ -146,7 +178,7 @@ class MARL_SIM(SIM_ENV):
                     rx = [position[0], other_pos[0]]
                     ry = [position[1], other_pos[1]]
                     self.env.draw_trajectory(
-                        np.array([rx, ry]), refresh=True, linewidth=weight
+                        np.array([rx, ry]), refresh=True, linewidth=weight * 2
                     )
 
             if goal:
@@ -183,10 +215,13 @@ class MARL_SIM(SIM_ENV):
         Reset the simulation environment and optionally set robot and obstacle positions.
 
         Args:
-            robot_state (list or None, optional): Initial state for robots as [x, y, theta, speed].
-            robot_goal (list or None, optional): Goal position(s) for the robots.
-            random_obstacles (bool, optional): If True, randomly position obstacles.
-            random_obstacle_ids (list or None, optional): IDs of obstacles to randomize.
+            robot_state (list or None, optional): Initial robot state(s) as [[x], [y], [theta]].
+                If None, random states are assigned ensuring minimum spacing between robots.
+            robot_goal (list or None, optional): Fixed goal position(s) for robots. If None, random
+                goals are generated within the environment boundaries.
+            random_obstacles (bool, optional): If True, reposition obstacles randomly within bounds.
+            random_obstacle_ids (list or None, optional): IDs of obstacles to randomize. Defaults to
+                seven obstacles starting from index equal to the number of robots.
 
         Returns:
             tuple: (
@@ -278,18 +313,22 @@ class MARL_SIM(SIM_ENV):
     @staticmethod
     def get_reward(goal, collision, action, closest_robots, distance, phase=1):
         """
-        Calculate the reward for a robot given the current state and action.
+        Compute the reward for a single robot based on goal progress, collisions,
+        control effort, and proximity to other robots.
 
         Args:
             goal (bool): Whether the robot reached its goal.
-            collision (bool): Whether a collision occurred.
-            action (list): [linear_velocity, angular_velocity] applied.
-            closest_robots (list): Distances to the closest other robots.
-            distance (float): Distance to the goal.
-            phase (int, optional): Reward phase/function selector (default: 1).
+            collision (bool): Whether the robot collided with an obstacle or another robot.
+            action (list): [linear_velocity, angular_velocity] applied by the robot.
+            closest_robots (list): Distances to other robots.
+            distance (float): Current distance to the goal.
+            phase (int, optional): Reward configuration (1 or 2). Default is 1.
 
         Returns:
-            float: Computed reward.
+            float: Computed scalar reward.
+
+        Raises:
+            ValueError: If an unknown reward phase is specified.
         """
 
         match phase:
@@ -302,7 +341,7 @@ class MARL_SIM(SIM_ENV):
                     r_dist = 1.5 / distance
                     cl_pen = 0
                     for rob in closest_robots:
-                        add = 1.5 - rob if rob < 1.5 else 0
+                        add = (1.25 - rob) ** 2 if rob < 1.25 else 0
                         cl_pen += add
 
                     return action[0] - 0.5 * abs(action[1]) - cl_pen + r_dist

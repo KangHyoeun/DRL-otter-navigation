@@ -11,10 +11,10 @@ robot:
     distribution: {name: 'circle', radius: 4, center: [6, 6]}
     shape: {name: 'circle', radius: 0.2}
     vel_min: [ 0, -1.0 ]
-    vel_max: [ 1.0, 1.0 ]
+    vel_max: [ 0.5, 1.0 ]
     state: [2, 2, 0, 0]
     goal: [9, 9, 0]
-    color: ['royalblue', 'red', 'green', 'orange', 'purple', 'yellow', 'cyan', 'magenta', 'lime', 'pink', 'brown']
+    color: ['royalblue', 'red', 'green', 'orange', 'purple', 'yellow', 'cyan', 'magenta', 'lime', 'pink', 'brown', 'black', 'bisque', 'slategrey', 'lavender', 'hotpink', 'navy', 'gold', 'olive', 'peru']
     arrive_mode: position
     goal_threshold: 0.3
 

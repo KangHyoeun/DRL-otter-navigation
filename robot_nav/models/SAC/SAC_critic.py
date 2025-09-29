@@ -25,7 +25,6 @@ class DoubleQCritic(nn.Module):
         Q1 and Q2 share the same architecture but have separate weights.
         """
         super().__init__()
-
         self.Q1 = utils.mlp(obs_dim + action_dim, hidden_dim, 1, hidden_depth)
         self.Q2 = utils.mlp(obs_dim + action_dim, hidden_dim, 1, hidden_depth)
 

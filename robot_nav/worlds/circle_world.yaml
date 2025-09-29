@@ -1,0 +1,23 @@
+world:
+  height: 12  # the height of the world
+  width: 12   # the height of the world
+  step_time: 0.3  # Calculate each step
+  sample_time: 0.3  # For render and data extraction
+  collision_mode: 'reactive'
+
+robot:
+  - number: 5
+    kinematics: {name: 'diff'}
+    distribution: {name: 'circle', radius: 5, center: [6, 6]}
+    shape: {name: 'circle', radius: 0.2}
+#    behavior: {name: 'rvo', mode: 'rvo', wander: False, neighbor_threshold: 4.0} # use behavior for ROV method
+    vel_min: [ 0, -1.0 ]
+    vel_max: [ 0.5, 1.0 ]
+    state: [2, 2, 0, 0]
+    goal: [9, 9, 0]
+    color: ['royalblue', 'red', 'green', 'orange', 'purple', 'yellow', 'cyan', 'magenta', 'lime', 'pink', 'brown', 'black', 'bisque', 'slategrey', 'lavender', 'hotpink', 'navy', 'gold', 'olive', 'peru']
+    arrive_mode: position
+    goal_threshold: 0.3
+
+    plot:
+      show_trajectory: False
