@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from torch import distributions as pyd
 
 import robot_nav.models.SAC.SAC_utils as utils
-from robot_nav.models.MARL.Attention.g2anet import G2ANet
 
 
 class TanhTransform(pyd.transforms.Transform):
@@ -159,7 +158,6 @@ class DiagGaussianActor(nn.Module):
 
         self.log_std_bounds = log_std_bounds
         self.trunk = utils.mlp(obs_dim, hidden_dim, 2 * action_dim, hidden_depth)
-        self.attention = G2ANet(hidden_dim)
 
         self.outputs = dict()
         self.apply(utils.weight_init)
@@ -174,10 +172,7 @@ class DiagGaussianActor(nn.Module):
         Returns:
             SquashedNormal: Action distribution with mean and std tracked in `self.outputs`.
         """
-        attn_out, hard_logits, pair_d, mean_entropy, hard_weights, combined_weights = (
-            self.attention(obs)
-        )
-        mu, log_std = self.trunk(attn_out).chunk(2, dim=-1)
+        mu, log_std = self.trunk(obs).chunk(2, dim=-1)
 
         # constrain log_std inside [log_std_min, log_std_max]
         log_std = torch.tanh(log_std)
@@ -190,7 +185,7 @@ class DiagGaussianActor(nn.Module):
         self.outputs["std"] = std
 
         dist = SquashedNormal(mu, std)
-        return dist, hard_logits, pair_d, mean_entropy, hard_weights, combined_weights
+        return dist
 
     def log(self, writer, step):
         """

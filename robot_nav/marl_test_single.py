@@ -11,7 +11,7 @@ import torch
 import numpy as np
 
 
-class CIRCLE_SIM(SIM_ENV):
+class SINGLE_SIM(SIM_ENV):
     """
     Simulation environment for multi-agent robot navigation using IRSim.
 
@@ -26,7 +26,12 @@ class CIRCLE_SIM(SIM_ENV):
         y_range (tuple): World y-range.
     """
 
-    def __init__(self, world_file="multi_robot_world.yaml", disable_plotting=False):
+    def __init__(
+        self,
+        world_file="worlds/circle_world.yaml",
+        disable_plotting=False,
+        reward_phase=2,
+    ):
         """
         Initialize the MARL_SIM environment.
 
@@ -38,11 +43,10 @@ class CIRCLE_SIM(SIM_ENV):
         self.env = irsim.make(
             world_file, disable_all_plot=disable_plotting, display=display
         )
-        robot_info = self.env.get_robot_info(0)
-        # self.robot_goal = robot_info.goal
         self.num_robots = len(self.env.robot_list)
         self.x_range = self.env._world.x_range
         self.y_range = self.env._world.y_range
+        self.reward_phase = reward_phase
 
     def step(self, action, connection, combined_weights=None):
         """
@@ -67,7 +71,10 @@ class CIRCLE_SIM(SIM_ENV):
                 goal_positions (list): Goal [x, y] for each robot,
             )
         """
-        act = [[0, 0]  if self.env.robot_list[i].arrive else action[i] for i in range(len(action)) ]
+        act = [
+            [0, 0] if self.env.robot_list[i].arrive else action[i]
+            for i in range(len(action))
+        ]
         self.env.step(action_id=[i for i in range(self.num_robots)], action=act)
         self.env.render()
 
@@ -109,7 +116,7 @@ class CIRCLE_SIM(SIM_ENV):
             collision = self.env.robot_list[i].collision
             action_i = action[i]
             reward = self.get_reward(
-                goal, collision, action_i, closest_robots, distance
+                goal, collision, action_i, closest_robots, distance, self.reward_phase
             )
 
             position = [robot_state[0].item(), robot_state[1].item()]
@@ -131,7 +138,6 @@ class CIRCLE_SIM(SIM_ENV):
                 connection[i]
             )  # connection[i] is logits for "connect" per pair
 
-            # Now we need to insert the self-connection (optional, typically skipped)
             i_connections = i_probs.tolist()
             i_connections.insert(i, 0)
             if combined_weights is not None:
@@ -154,16 +160,6 @@ class CIRCLE_SIM(SIM_ENV):
                     self.env.draw_trajectory(
                         np.array([rx, ry]), refresh=True, linewidth=weight
                     )
-
-            # if goal:
-            #     self.env.robot_list[i].set_random_goal(
-            #         obstacle_list=self.env.obstacle_list,
-            #         init=True,
-            #         range_limits=[
-            #             [self.x_range[0] + 1, self.y_range[0] + 1, -3.141592653589793],
-            #             [self.x_range[1] - 1, self.y_range[1] - 1, 3.141592653589793],
-            #         ],
-            #     )
 
         return (
             poses,
@@ -280,7 +276,6 @@ class CIRCLE_SIM(SIM_ENV):
                 raise ValueError("Unknown reward phase")
 
 
-
 def outside_of_bounds(poses):
     """
     Check if any robot is outside the defined world boundaries.
@@ -319,8 +314,8 @@ def main(args=None):
     test_scenarios = 100
 
     # ---- Instantiate simulation environment and model ----
-    sim = CIRCLE_SIM(
-        world_file="reverse_hallway_world.yaml", disable_plotting=True
+    sim = SINGLE_SIM(
+        world_file="worlds/circle_world.yaml", disable_plotting=True, reward_phase=2
     )  # instantiate environment
 
     model = TD3(
@@ -331,12 +326,10 @@ def main(args=None):
         device=device,
         save_every=save_every,
         load_model=True,
-        model_name="test",
-        load_model_name="g2anet_phase2_exp5",
-        load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint/g2anet_phase2")
-        # model_name="test",
-        # load_model_name="phase2_exp5",
-        # load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint/hsAttention_phase2")
+        model_name="TDR-MARL-test",
+        load_model_name="TDR-MARL-train",
+        load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint"),
+        attention="iga",
     )  # instantiate a model
 
     connections = torch.tensor(
@@ -362,11 +355,7 @@ def main(args=None):
     timesteps_per_ep = []
     epsilon = 1e-6
     pbar = tqdm(total=test_scenarios)
-    # ---- Main training loop ----
     while episode < test_scenarios:
-        # state, terminal = model.prepare_state(
-        #     poses, distance, cos, sin, collision, a, goal_positions
-        # )  # get state a state representation from returned data from the environment
         state, terminal = model.prepare_state(
             poses, distance, cos, sin, collision, a, goal_positions
         )
@@ -375,21 +364,21 @@ def main(args=None):
         )  # get an action from the model
 
         combined_weights_norm = combined_weights / (
-                combined_weights.sum(dim=-1, keepdim=True) + epsilon
+            combined_weights.sum(dim=-1, keepdim=True) + epsilon
         )
 
-        # Entropy for analysis/logging
         entropy = (
-            -(combined_weights_norm * (combined_weights_norm + epsilon).log())
-            .sum(dim=-1)
-            .mean()
-        ).data.cpu().numpy()
+            (
+                -(combined_weights_norm * (combined_weights_norm + epsilon).log())
+                .sum(dim=-1)
+                .mean()
+            )
+            .data.cpu()
+            .numpy()
+        )
         entropy_list.append(entropy)
 
-
-        a_in = [
-            [(a[0] + 1) / 4, a[1]] for a in action
-        ]  # clip linear velocity to [0, 0.5] m/s range
+        a_in = [[(a[0] + 1) / 4, a[1]] for a in action]
 
         (
             poses,
@@ -415,7 +404,7 @@ def main(args=None):
         outside = outside_of_bounds(poses)
 
         if (
-            sum(collision)>0.5 or steps == max_steps or int(sum(goal)) == len(goal)
+            sum(collision) > 0.5 or steps == max_steps or int(sum(goal)) == len(goal)
         ):  # reset environment of terminal state reached, or max_steps were taken
             (
                 poses,
@@ -447,24 +436,12 @@ def main(args=None):
             steps += 1
 
     cols = sum(col_per_ep) / 2
-    reward_per_ep = np.array(reward_per_ep, dtype=np.float32)
     goals_per_ep = np.array(goals_per_ep, dtype=np.float32)
     col_per_ep = np.array(col_per_ep, dtype=np.float32)
-    lin_actions = np.array(lin_actions, dtype=np.float32)
-    ang_actions = np.array(ang_actions, dtype=np.float32)
-    entropy = np.array(entropy_list, dtype=np.float32)
-    avg_ep_reward = statistics.mean(reward_per_ep)
-    avg_ep_reward_std = statistics.stdev(reward_per_ep)
     avg_ep_col = statistics.mean(col_per_ep)
     avg_ep_col_std = statistics.stdev(col_per_ep)
     avg_ep_goals = statistics.mean(goals_per_ep)
     avg_ep_goals_std = statistics.stdev(goals_per_ep)
-    mean_lin_action = statistics.mean(lin_actions)
-    lin_actions_std = statistics.stdev(lin_actions)
-    mean_ang_action = statistics.mean(ang_actions)
-    ang_actions_std = statistics.stdev(ang_actions)
-    mean_entropy = statistics.mean(entropy)
-    mean_entropy_std = statistics.stdev(entropy)
     t_per_ep = np.array(timesteps_per_ep, dtype=np.float32)
     avg_ep_t = statistics.mean(t_per_ep)
     avg_ep_t_std = statistics.stdev(t_per_ep)
@@ -478,6 +455,7 @@ def main(args=None):
     print(f"avg_ep_t_std: {avg_ep_t_std}")
     print(f"ran out of time: {ran_out_of_time}")
     print("..............................................")
+
 
 if __name__ == "__main__":
     main()

@@ -8,31 +8,35 @@ from numpy import inf
 from torch.utils.tensorboard import SummaryWriter
 
 from robot_nav.models.MARL.Attention.g2anet import G2ANet
-from robot_nav.models.MARL.Attention.hardsoftAttention import Attention
+from robot_nav.models.MARL.Attention.iga import Attention
 
 
 class Actor(nn.Module):
     """
-    Policy network for MARL, with an attention mechanism for multi-robot coordination.
+    Policy network for multi-agent control with an attention encoder.
+
+    The actor encodes inter-agent context (via IGA or G2ANet attention) and maps
+    the attended embedding to continuous actions.
 
     Args:
-        action_dim (int): Number of action dimensions.
-        embedding_dim (int): Dimensionality of agent feature embeddings.
+        action_dim (int): Number of action dimensions per agent.
+        embedding_dim (int): Dimensionality of the attention embedding.
+        attention (str): Attention backend, one of {"iga", "g2anet"}.
 
     Attributes:
-        attention (Attention): Encodes agent state and computes attention.
-        policy_head (nn.Sequential): MLP for mapping attention output to actions.
+        attention (nn.Module): Attention encoder producing attended embeddings and
+            diagnostics (hard logits, distances, entropy, masks, combined weights).
+        policy_head (nn.Sequential): MLP mapping attended embeddings to actions in [-1, 1].
     """
 
     def __init__(self, action_dim, embedding_dim, attention):
         super().__init__()
-        if attention == "hsattention":
+        if attention == "iga":
             self.attention = Attention(embedding_dim)
         elif attention == "g2anet":
             self.attention = G2ANet(embedding_dim)  # ➊ edge classifier
         else:
             raise ValueError("unknown attention mechanism in Actor")
-
 
         # ➋ policy head (everything _after_ attention)
         self.policy_head = nn.Sequential(
@@ -46,14 +50,22 @@ class Actor(nn.Module):
 
     def forward(self, obs, detach_attn=False):
         """
-        Forward pass through the actor.
+        Run the actor to produce actions and attention diagnostics.
 
         Args:
-            obs (Tensor): Observation input of shape (batch, n_agents, obs_dim).
-            detach_attn (bool, optional): If True, detach attention output from computation graph.
+            obs (Tensor): Observations of shape (B, N, obs_dim) or (N, obs_dim).
+            detach_attn (bool, optional): If True, detaches attention features before
+                the policy head (useful for target policy smoothing). Defaults to False.
 
         Returns:
-            tuple: (action, hard_logits, pair_d, mean_entropy, hard_weights, combined_weights)
+            tuple:
+                action (Tensor): Predicted actions, shape (B*N, action_dim).
+                hard_logits (Tensor): Hard attention logits, shape (B*N, N-1).
+                pair_d (Tensor): Unnormalized pairwise distances, shape (B*N, N-1, 1).
+                mean_entropy (Tensor): Mean soft-attention entropy (scalar tensor).
+                hard_weights (Tensor): Binary hard attention mask, shape (B, N, N).
+                combined_weights (Tensor): Soft weights per (receiver, sender),
+                    shape (N, N*(N-1)) for each batch item (batched internally).
         """
         attn_out, hard_logits, pair_d, mean_entropy, hard_weights, combined_weights = (
             self.attention(obs)
@@ -66,26 +78,31 @@ class Actor(nn.Module):
 
 class Critic(nn.Module):
     """
-    Critic (value) network for MARL, with twin Q-outputs and attention encoding.
+    Twin Q-value critic with attention-based state encoding.
+
+    Computes two independent Q estimates (Q1, Q2) from attended embeddings and
+    concatenated actions, following the TD3 design.
 
     Args:
-        action_dim (int): Number of action dimensions.
-        embedding_dim (int): Dimensionality of agent feature embeddings.
+        action_dim (int): Number of action dimensions per agent.
+        embedding_dim (int): Dimensionality of the attention embedding.
+        attention (str): Attention backend, one of {"iga", "g2anet"}.
 
     Attributes:
-        attention (Attention): Encodes agent state and computes attention.
-        (Other attributes are MLP layers for twin Q-networks.)
+        attention (nn.Module): Attention encoder producing attended embeddings and
+            diagnostics (hard logits, distances, entropy, masks).
+        layer_1..layer_6 (nn.Linear): MLP layers forming the twin Q networks.
     """
 
     def __init__(self, action_dim, embedding_dim, attention):
         super(Critic, self).__init__()
         self.embedding_dim = embedding_dim
-        if attention == "hsattention":
+        if attention == "iga":
             self.attention = Attention(embedding_dim)
         elif attention == "g2anet":
             self.attention = G2ANet(embedding_dim)  # ➊ edge classifier
         else:
-            raise ValueError("unknown attention mechanism in Actor")
+            raise ValueError("unknown attention mechanism in Critic")
 
         self.layer_1 = nn.Linear(self.embedding_dim * 2, 400)
         torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
@@ -100,9 +117,7 @@ class Critic(nn.Module):
         torch.nn.init.kaiming_uniform_(self.layer_3.weight, nonlinearity="leaky_relu")
 
         self.layer_4 = nn.Linear(self.embedding_dim * 2, 400)
-        torch.nn.init.kaiming_uniform_(
-            self.layer_4.weight, nonlinearity="leaky_relu"
-        )  # ✅ Fixed init bug
+        torch.nn.init.kaiming_uniform_(self.layer_4.weight, nonlinearity="leaky_relu")
 
         self.layer_5_s = nn.Linear(400, 300)
         torch.nn.init.kaiming_uniform_(self.layer_5_s.weight, nonlinearity="leaky_relu")
@@ -115,19 +130,20 @@ class Critic(nn.Module):
 
     def forward(self, embedding, action):
         """
-        Forward pass through both Q-networks using attention on agent embeddings.
+        Compute twin Q values from attended embeddings and actions.
 
         Args:
-            embedding (Tensor): Input agent embeddings (batch, n_agents, state_dim).
-            action (Tensor): Actions (batch * n_agents, action_dim).
+            embedding (Tensor): Agent embeddings of shape (B, N, state_dim).
+            action (Tensor): Actions of shape (B*N, action_dim).
 
         Returns:
-            tuple: (Q1, Q2, mean_entropy, hard_logits, unnorm_rel_dist, hard_weights)
-                Q1, Q2 (Tensor): Twin Q-value estimates (batch * n_agents, 1)
-                mean_entropy (Tensor): Soft attention entropy (scalar).
-                hard_logits (Tensor): Hard attention logits (batch * n_agents, n_agents-1).
-                unnorm_rel_dist (Tensor): Unnormalized inter-agent distances.
-                hard_weights (Tensor): Hard attention weights (batch, n_agents, n_agents-1).
+            tuple:
+                Q1 (Tensor): First Q-value estimate, shape (B*N, 1).
+                Q2 (Tensor): Second Q-value estimate, shape (B*N, 1).
+                mean_entropy (Tensor): Mean soft-attention entropy (scalar tensor).
+                hard_logits (Tensor): Hard attention logits, shape (B*N, N-1).
+                unnorm_rel_dist (Tensor): Unnormalized pairwise distances, shape (B*N, N-1, 1).
+                hard_weights (Tensor): Binary hard attention mask, shape (B, N, N).
         """
 
         (
@@ -154,24 +170,39 @@ class Critic(nn.Module):
 
 class TD3(object):
     """
-    TD3 (Twin Delayed Deep Deterministic Policy Gradient) agent for multi-agent reinforcement learning.
+    Twin Delayed DDPG (TD3) agent for multi-agent continuous control.
 
-    Wraps actor and critic networks, optimizer setup, exploration, training, and saving/loading utilities.
+    Wraps actor/critic networks, exploration policy, training loop, logging, and
+    checkpointing utilities.
 
     Args:
-        state_dim (int): State vector length per agent.
-        action_dim (int): Number of action dimensions.
-        max_action (float): Maximum action value for clipping.
-        device (torch.device): Torch device.
-        num_robots (int): Number of robots/agents.
-        lr_actor (float): Learning rate for actor optimizer.
-        lr_critic (float): Learning rate for critic optimizer.
-        save_every (int): Save model every N train iterations (0 = disable).
-        load_model (bool): If True, load model from checkpoint.
-        save_directory (Path): Path for saving model files.
-        model_name (str): Base name for saved models.
-        load_model_name (str or None): Name for loading saved model files.
-        load_directory (Path): Path for loading model files.
+        state_dim (int): Per-agent state dimension.
+        action_dim (int): Per-agent action dimension.
+        max_action (float): Action clip magnitude (actions are clipped to [-max_action, max_action]).
+        device (torch.device): Target device for models and tensors.
+        num_robots (int): Number of agents.
+        lr_actor (float, optional): Actor learning rate. Defaults to 1e-4.
+        lr_critic (float, optional): Critic learning rate. Defaults to 3e-4.
+        save_every (int, optional): Save frequency in training iterations (0 = disabled). Defaults to 0.
+        load_model (bool, optional): If True, loads weights on init. Defaults to False.
+        save_directory (Path, optional): Directory for saving checkpoints.
+        model_name (str, optional): Base filename for checkpoints. Defaults to "marlTD3".
+        load_model_name (str or None, optional): Filename base to load. Defaults to None (uses model_name).
+        load_directory (Path, optional): Directory to load checkpoints from.
+        attention (str, optional): Attention backend, one of {"iga", "g2anet"}. Defaults to "iga".
+
+    Attributes:
+        actor (Actor): Policy network.
+        actor_target (Actor): Target policy network.
+        critic (Critic): Twin Q-value network.
+        critic_target (Critic): Target critic network.
+        actor_optimizer (torch.optim.Optimizer): Optimizer over attention + policy head.
+        critic_optimizer (torch.optim.Optimizer): Optimizer over critic.
+        writer (SummaryWriter): TensorBoard writer.
+        iter_count (int): Training iteration counter for logging/saving.
+        save_every (int): Save frequency.
+        model_name (str): Base filename for checkpoints.
+        save_directory (Path): Directory for saving checkpoints.
     """
 
     def __init__(
@@ -189,17 +220,19 @@ class TD3(object):
         model_name="marlTD3",
         load_model_name=None,
         load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint"),
-        attention = "hsattention"
+        attention="iga",
     ):
         # Initialize the Actor network
-        if attention not in ["hsattention", "g2anet"]:
+        if attention not in ["iga", "g2anet"]:
             raise ValueError("unknown attention mechanism specified for TD3 model")
         self.num_robots = num_robots
         self.device = device
         self.actor = Actor(action_dim, embedding_dim=256, attention=attention).to(
             self.device
         )  # Using the updated Actor
-        self.actor_target = Actor(action_dim, embedding_dim=256, attention=attention).to(self.device)
+        self.actor_target = Actor(
+            action_dim, embedding_dim=256, attention=attention
+        ).to(self.device)
         self.actor_target.load_state_dict(self.actor.state_dict())
 
         self.attn_params = list(self.actor.attention.parameters())
@@ -212,7 +245,9 @@ class TD3(object):
         self.critic = Critic(action_dim, embedding_dim=256, attention=attention).to(
             self.device
         )  # Using the updated Critic
-        self.critic_target = Critic(action_dim, embedding_dim=256, attention=attention).to(self.device)
+        self.critic_target = Critic(
+            action_dim, embedding_dim=256, attention=attention
+        ).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = torch.optim.Adam(
             params=self.critic.parameters(), lr=lr_critic
@@ -232,17 +267,17 @@ class TD3(object):
 
     def get_action(self, obs, add_noise):
         """
-        Computes an action (with optional exploration noise) for a given observation.
+        Compute an action for the given observation, with optional exploration noise.
 
         Args:
-            obs (np.ndarray): State vector (n_agents, state_dim) or batch.
-            add_noise (bool): Whether to add exploration noise.
+            obs (np.ndarray): Observation array of shape (N, state_dim) or (B, N, state_dim).
+            add_noise (bool): If True, adds Gaussian exploration noise and clips to bounds.
 
         Returns:
-            tuple: (action, connection_logits, combined_weights)
-                action (np.ndarray): Action(s) (n_agents, action_dim).
-                connection_logits (Tensor): Hard attention logits.
-                combined_weights (Tensor): Final soft attention weights.
+            tuple:
+                action (np.ndarray): Actions reshaped to (N, action_dim).
+                connection_logits (Tensor): Hard attention logits from the actor.
+                combined_weights (Tensor): Soft attention weights per (receiver, sender).
         """
         action, connection, combined_weights = self.act(obs)
         if add_noise:
@@ -254,16 +289,16 @@ class TD3(object):
 
     def act(self, state):
         """
-        Computes the deterministic action from the actor network for a given state.
+        Compute the deterministic action from the current policy.
 
         Args:
-            state (np.ndarray): State (n_agents, state_dim).
+            state (np.ndarray): Observation array of shape (N, state_dim).
 
         Returns:
-            tuple: (action, connection_logits, combined_weights)
-                action (np.ndarray): Action(s) (flattened).
-                connection_logits (Tensor): Hard attention logits.
-                combined_weights (Tensor): Final soft attention weights.
+            tuple:
+                action (np.ndarray): Flattened action vector of shape (N*action_dim,).
+                connection_logits (Tensor): Hard attention logits from the actor.
+                combined_weights (Tensor): Soft attention weights per (receiver, sender).
         """
         # Function to get the action from the actor
         state = torch.Tensor(state).to(self.device)
@@ -282,25 +317,28 @@ class TD3(object):
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
-        bce_weight=0.1,
+        bce_weight=0.01,
         entropy_weight=1,
         connection_proximity_threshold=4,
+        max_grad_norm=7.0,
     ):
         """
-        Runs a full TD3 training cycle using sampled experiences.
+        Run a TD3 training loop over sampled mini-batches.
 
         Args:
-            replay_buffer: Experience replay buffer.
-            iterations (int): Training steps.
-            batch_size (int): Batch size.
-            discount (float): Discount factor (gamma).
-            tau (float): Target network soft update factor.
-            policy_noise (float): Noise std for policy smoothing.
-            noise_clip (float): Max policy smoothing noise.
-            policy_freq (int): Frequency of actor/policy updates.
-            bce_weight (float): Loss weight for connection prediction BCE.
-            entropy_weight (float): Loss weight for attention entropy term.
-            connection_proximity_threshold (float): Threshold for true binary connection label.
+            replay_buffer: Buffer supporting ``sample_batch(batch_size)`` -> tuple of arrays.
+            iterations (int): Number of gradient steps.
+            batch_size (int): Mini-batch size.
+            discount (float, optional): Discount factor γ. Defaults to 0.99.
+            tau (float, optional): Target network update rate. Defaults to 0.005.
+            policy_noise (float, optional): Std of target policy noise. Defaults to 0.2.
+            noise_clip (float, optional): Clipping range for target noise. Defaults to 0.5.
+            policy_freq (int, optional): Actor update period (in critic steps). Defaults to 2.
+            bce_weight (float, optional): Weight for hard-connection BCE loss. Defaults to 0.01.
+            entropy_weight (float, optional): Weight for attention entropy bonus. Defaults to 1.
+            connection_proximity_threshold (float, optional): Distance threshold for the
+                positive class when supervising hard connections. Defaults to 4.
+            max_grad_norm (float, optional): Gradient clipping norm. Defaults to 7.0.
 
         Returns:
             None
@@ -402,7 +440,7 @@ class TD3(object):
 
             self.critic_optimizer.zero_grad()
             total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 10.0)
+            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_grad_norm)
             self.critic_optimizer.step()
 
             av_loss += total_loss.item()
@@ -431,7 +469,7 @@ class TD3(object):
 
                 self.actor_optimizer.zero_grad()
                 total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.policy_params, 10.0)
+                torch.nn.utils.clip_grad_norm_(self.policy_params, max_grad_norm)
                 self.actor_optimizer.step()
 
                 av_actor_loss += total_loss.item()
@@ -536,21 +574,21 @@ class TD3(object):
         self, poses, distance, cos, sin, collision, action, goal_positions
     ):
         """
-        Formats raw environment state for learning.
+        Convert raw environment outputs into per-agent state vectors.
 
         Args:
-            poses (list): Each agent's global pose [x, y, theta].
-            distance (list): Distance to goal for each agent.
-            cos (list): Cosine of angle to goal.
-            sin (list): Sine of angle to goal.
-            collision (list): Collision flags per agent.
-            action (list): Last action taken [lin_vel, ang_vel].
-            goal_positions (list): Each agent's goal [x, y].
+            poses (list): Per-agent poses [[x, y, theta], ...].
+            distance (list): Per-agent distances to goal.
+            cos (list): Per-agent cos(heading error to goal).
+            sin (list): Per-agent sin(heading error to goal).
+            collision (list): Per-agent collision flags (bool or {0,1}).
+            action (list): Per-agent last actions [[lin_vel, ang_vel], ...].
+            goal_positions (list): Per-agent goals [[gx, gy], ...].
 
         Returns:
             tuple:
-                states (list): List of processed state vectors.
-                terminal (list): 1 if collision or goal reached, else 0.
+                states (list): Per-agent state vectors (length == state_dim).
+                terminal (list): Terminal flags (collision or goal), same length as states.
         """
         states = []
         terminal = []

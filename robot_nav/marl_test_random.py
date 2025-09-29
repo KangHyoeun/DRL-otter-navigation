@@ -42,14 +42,16 @@ def main(args=None):
     )  # using cuda if it is available, cpu otherwise
     epoch = 1  # starting epoch number
     episode = 0
-    max_steps = 300  # maximum number of steps in single episode
+    max_steps = 600  # maximum number of steps in single episode
     steps = 0  # starting step number
     save_every = 5  # save the model every n training cycles
     test_scenarios = 1000
 
     # ---- Instantiate simulation environment and model ----
     sim = MARL_SIM(
-        world_file="multi_robot_world.yaml", disable_plotting=False
+        world_file="worlds/multi_robot_world.yaml",
+        disable_plotting=True,
+        reward_phase=2,
     )  # instantiate environment
 
     model = TD3(
@@ -60,12 +62,10 @@ def main(args=None):
         device=device,
         save_every=save_every,
         load_model=True,
-        # model_name="test",
-        # load_model_name="g2anet_phase2_exp5",
-        # load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint/g2anet_phase2")
-        model_name="test",
-        load_model_name="phase2_exp1",
-        load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint/hsAttention_phase2")
+        model_name="TDR-MARL-test",
+        load_model_name="TDR-MARL-train",
+        load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint"),
+        attention="iga",
     )  # instantiate a model
 
     connections = torch.tensor(
@@ -89,11 +89,7 @@ def main(args=None):
     entropy_list = []
     epsilon = 1e-6
     pbar = tqdm(total=test_scenarios)
-    # ---- Main training loop ----
     while episode < test_scenarios:
-        # state, terminal = model.prepare_state(
-        #     poses, distance, cos, sin, collision, a, goal_positions
-        # )  # get state a state representation from returned data from the environment
         state, terminal = model.prepare_state(
             poses, distance, cos, sin, collision, a, goal_positions
         )
@@ -102,17 +98,20 @@ def main(args=None):
         )  # get an action from the model
 
         combined_weights_norm = combined_weights / (
-                combined_weights.sum(dim=-1, keepdim=True) + epsilon
+            combined_weights.sum(dim=-1, keepdim=True) + epsilon
         )
 
         # Entropy for analysis/logging
         entropy = (
-            -(combined_weights_norm * (combined_weights_norm + epsilon).log())
-            .sum(dim=-1)
-            .mean()
-        ).data.cpu().numpy()
+            (
+                -(combined_weights_norm * (combined_weights_norm + epsilon).log())
+                .sum(dim=-1)
+                .mean()
+            )
+            .data.cpu()
+            .numpy()
+        )
         entropy_list.append(entropy)
-
 
         a_in = [
             [(a[0] + 1) / 4, a[1]] for a in action
@@ -133,7 +132,7 @@ def main(args=None):
             a_in, connection, combined_weights
         )  # get data from the environment
         running_goals += sum(goal)
-        running_collisions += sum(collision)
+        running_collisions += sum(collision) / 2
         running_reward += sum(reward)
         running_timesteps += 1
         for j in range(len(a_in)):
@@ -142,7 +141,7 @@ def main(args=None):
         outside = outside_of_bounds(poses)
 
         if (
-            sum(collision)>0.5 or steps == max_steps or outside
+            sum(collision) > 0.5 or steps == max_steps or outside
         ):  # reset environment of terminal state reached, or max_steps were taken
             (
                 poses,
@@ -236,6 +235,7 @@ def main(args=None):
     ax.set_ylabel("Frequency (Log Scale)")
     ax.set_title("Histogram with Log Scale")
     model.writer.add_figure("test/ang_actions_hist", fig)
+
 
 if __name__ == "__main__":
     main()

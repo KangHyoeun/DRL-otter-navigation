@@ -14,28 +14,31 @@ import torch
 from robot_nav.SIM_ENV.sim_env import SIM_ENV
 
 
-class RVO_SIM(SIM_ENV):
+class RVO_RANDOM_SIM(SIM_ENV):
     """
-    Simulation environment for multi-agent robot navigation using IRSim.
+    Simulation environment for randomized multi-agent robot navigation using IRSim.
 
-    This class extends the SIM_ENV and provides a wrapper for multi-robot
-    simulation and interaction, supporting reward computation and custom reset logic.
+    This class extends `SIM_ENV` and provides a wrapper for running a multi-robot
+    simulation where robots navigate toward randomly assigned goals. It includes
+    environment reset, step execution, and collision/goal state tracking.
 
     Attributes:
         env (object): IRSim simulation environment instance.
-        robot_goal (np.ndarray): Current goal position(s) for the robots.
+        robot_goal (np.ndarray): Current goal positions for all robots.
         num_robots (int): Number of robots in the environment.
-        x_range (tuple): World x-range.
-        y_range (tuple): World y-range.
+        x_range (tuple): Range of the x-axis for the simulation world.
+        y_range (tuple): Range of the y-axis for the simulation world.
     """
 
     def __init__(self, world_file="multi_robot_world.yaml", disable_plotting=False):
         """
-        Initialize the MARL_SIM environment.
+        Initialize the randomized IRSim-based multi-robot environment.
 
         Args:
-            world_file (str, optional): Path to the world configuration YAML file.
-            disable_plotting (bool, optional): If True, disables IRSim rendering and plotting.
+            world_file (str, optional): Path to the YAML configuration file defining
+                the world layout. Defaults to "multi_robot_world.yaml".
+            disable_plotting (bool, optional): If True, disables visual rendering
+                and live plotting in IRSim. Defaults to False.
         """
         display = False if disable_plotting else True
         self.env = irsim.make(
@@ -49,26 +52,17 @@ class RVO_SIM(SIM_ENV):
 
     def step(self):
         """
-        Perform a simulation step for all robots using the provided actions and connections.
+        Perform one simulation step for all robots and update goals dynamically.
 
-        Args:
-            action (list): List of actions for each robot [[lin_vel, ang_vel], ...].
-            connection (Tensor): Tensor of shape (num_robots, num_robots-1) containing logits indicating connections between robots.
-            combined_weights (Tensor or None, optional): Optional weights for each connection, shape (num_robots, num_robots-1).
+        Each robot moves based on IRSim’s physics step, with collisions, goals,
+        and positions collected. If a robot reaches its goal, a new random goal
+        is automatically assigned.
 
         Returns:
-            tuple: (
-                poses (list): List of [x, y, theta] for each robot,
-                distances (list): Distance to goal for each robot,
-                coss (list): Cosine of angle to goal for each robot,
-                sins (list): Sine of angle to goal for each robot,
-                collisions (list): Collision status for each robot,
-                goals (list): Goal reached status for each robot,
-                action (list): Actions applied,
-                rewards (list): Rewards computed,
-                positions (list): Current [x, y] for each robot,
-                goal_positions (list): Goal [x, y] for each robot,
-            )
+            tuple:
+                collisions (list of bool): Collision flags for each robot.
+                goals (list of bool): Goal completion flags for each robot.
+                positions (list of [float, float]): Current [x, y] positions for each robot.
         """
         self.env.step()
         self.env.render()
@@ -106,27 +100,26 @@ class RVO_SIM(SIM_ENV):
         random_obstacle_ids=None,
     ):
         """
-        Reset the simulation environment and optionally set robot and obstacle positions.
+        Reset the simulation environment, optionally randomizing robots and obstacles.
+
+        Randomly reinitializes robot positions while avoiding collisions and can
+        optionally re-randomize obstacle positions.
 
         Args:
-            robot_state (list or None, optional): Initial state for robots as [x, y, theta, speed].
-            robot_goal (list or None, optional): Goal position(s) for the robots.
-            random_obstacles (bool, optional): If True, randomly position obstacles.
-            random_obstacle_ids (list or None, optional): IDs of obstacles to randomize.
+            robot_state (list or None, optional): Custom initial state for robots as
+                [x, y, theta, speed]. If None, random states are assigned.
+            robot_goal (list or None, optional): Custom goal positions. If None, random
+                goals are assigned within bounds.
+            random_obstacles (bool, optional): Whether to randomize obstacle locations.
+                Defaults to False.
+            random_obstacle_ids (list or None, optional): List of obstacle IDs to randomize.
+                If None, defaults to the first 7 obstacles after robots.
 
         Returns:
-            tuple: (
-                poses (list): List of [x, y, theta] for each robot,
-                distances (list): Distance to goal for each robot,
-                coss (list): Cosine of angle to goal for each robot,
-                sins (list): Sine of angle to goal for each robot,
-                collisions (list): All False after reset,
-                goals (list): All False after reset,
-                action (list): Initial action ([[0.0, 0.0], ...]),
-                rewards (list): Rewards for initial state,
-                positions (list): Initial [x, y] for each robot,
-                goal_positions (list): Initial goal [x, y] for each robot,
-            )
+            tuple:
+                collisions (list of bool): All False immediately after reset.
+                goals (list of bool): All False immediately after reset.
+                positions (list of [float, float]): Initial [x, y] positions for all robots.
         """
         if robot_state is None:
             robot_state = [[random.uniform(3, 9)], [random.uniform(3, 9)], [0]]
@@ -181,22 +174,34 @@ class RVO_SIM(SIM_ENV):
         self.env.reset()
         self.robot_goal = self.env.robot.goal
 
-        _, _, positions= self.step()
+        _, _, positions = self.step()
         return [False] * self.num_robots, [False] * self.num_robots, positions
 
     def get_reward(self):
+        """
+        Placeholder for computing reward functions for the simulation.
+
+        Intended for integration with learning-based algorithms (e.g. MARL),
+        calculating per-agent or global rewards based on goal progress,
+        collisions, or path efficiency.
+
+        Returns:
+            None
+        """
         pass
 
 
 def outside_of_bounds(poses):
     """
-    Check if any robot is outside the defined world boundaries.
+    Determine whether any robot is outside the simulation’s defined world boundary.
+
+    The environment is assumed to be centered at (6, 6) with a 21×21 area.
 
     Args:
-        poses (list): List of [x, y, theta] poses for each robot.
+        poses (list of [float, float, float]): Robot poses in [x, y, theta] format.
 
     Returns:
-        bool: True if any robot is outside the 21x21 area centered at (6, 6), else False.
+        bool: True if any robot is outside the world boundary; False otherwise.
     """
     outside = False
     for pose in poses:
@@ -209,16 +214,30 @@ def outside_of_bounds(poses):
 
 
 def main(args=None):
+    """
+    Run multiple randomized test scenarios in the RVO_RANDOM_SIM environment.
+
+    Executes a series of randomized navigation tests, stepping through the environment
+    while tracking the number of goals reached, collisions, and time steps per episode.
+    Prints out aggregated performance metrics across all episodes.
+
+    Args:
+        args (Namespace or None, optional): Optional runtime arguments (unused).
+
+    Prints:
+        Summary statistics including:
+            - Average collisions per episode (and standard deviation)
+            - Average goals per episode (and standard deviation)
+    """
     episode = 0
     max_steps = 300  # maximum number of steps in single episode
     steps = 0  # starting step number
     test_scenarios = 1000
 
     # ---- Instantiate simulation environment and model ----
-    sim = RVO_SIM(
-        world_file="multi_robot_world.yaml", disable_plotting=True
+    sim = RVO_RANDOM_SIM(
+        world_file="worlds/multi_robot_world.yaml", disable_plotting=True
     )  # instantiate environment
-
 
     running_goals = 0
     running_collisions = 0
@@ -238,7 +257,7 @@ def main(args=None):
         outside = outside_of_bounds(poses)
 
         if (
-            sum(collision)>0.5 or steps == max_steps or outside
+            sum(collision) > 0.5 or steps == max_steps or outside
         ):  # reset environment of terminal state reached, or max_steps were taken
             sim.reset()
             goals_per_ep.append(running_goals)
@@ -252,7 +271,6 @@ def main(args=None):
         else:
             steps += 1
 
-
     goals_per_ep = np.array(goals_per_ep, dtype=np.float32)
     col_per_ep = np.array(col_per_ep, dtype=np.float32)
     avg_ep_col = statistics.mean(col_per_ep)
@@ -260,12 +278,12 @@ def main(args=None):
     avg_ep_goals = statistics.mean(goals_per_ep)
     avg_ep_goals_std = statistics.stdev(goals_per_ep)
 
-
     print(f"avg_ep_col: {avg_ep_col}")
     print(f"avg_ep_col_std: {avg_ep_col_std}")
     print(f"avg_ep_goals: {avg_ep_goals}")
     print(f"avg_ep_goals_std: {avg_ep_goals_std}")
     print("..............................................")
+
 
 if __name__ == "__main__":
     main()

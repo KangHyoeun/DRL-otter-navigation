@@ -26,7 +26,7 @@ def main(args=None):
         model_name="TD3",
     )  # instantiate a model
 
-    sim = SIM(world_file="eval_world.yaml")  # instantiate environment
+    sim = SIM(world_file="worlds/eval_world.yaml")  # instantiate environment
     with open("robot_nav/eval_points.yaml") as file:
         points = yaml.safe_load(file)
     robot_poses = points["robot"]["poses"]
