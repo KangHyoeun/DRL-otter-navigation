@@ -21,7 +21,7 @@ class Actor(nn.Module):
     Args:
         action_dim (int): Number of action dimensions per agent.
         embedding_dim (int): Dimensionality of the attention embedding.
-        attention (str): Attention backend, one of {"iga", "g2anet"}.
+        attention (str): Attention backend, one of {"igs", "g2anet"}.
 
     Attributes:
         attention (nn.Module): Attention encoder producing attended embeddings and
@@ -31,7 +31,7 @@ class Actor(nn.Module):
 
     def __init__(self, action_dim, embedding_dim, attention):
         super().__init__()
-        if attention == "iga":
+        if attention == "igs":
             self.attention = Attention(embedding_dim)
         elif attention == "g2anet":
             self.attention = G2ANet(embedding_dim)  # ➊ edge classifier
@@ -86,7 +86,7 @@ class Critic(nn.Module):
     Args:
         action_dim (int): Number of action dimensions per agent.
         embedding_dim (int): Dimensionality of the attention embedding.
-        attention (str): Attention backend, one of {"iga", "g2anet"}.
+        attention (str): Attention backend, one of {"igs", "g2anet"}.
 
     Attributes:
         attention (nn.Module): Attention encoder producing attended embeddings and
@@ -97,7 +97,7 @@ class Critic(nn.Module):
     def __init__(self, action_dim, embedding_dim, attention):
         super(Critic, self).__init__()
         self.embedding_dim = embedding_dim
-        if attention == "iga":
+        if attention == "igs":
             self.attention = Attention(embedding_dim)
         elif attention == "g2anet":
             self.attention = G2ANet(embedding_dim)  # ➊ edge classifier
@@ -189,7 +189,7 @@ class TD3(object):
         model_name (str, optional): Base filename for checkpoints. Defaults to "marlTD3".
         load_model_name (str or None, optional): Filename base to load. Defaults to None (uses model_name).
         load_directory (Path, optional): Directory to load checkpoints from.
-        attention (str, optional): Attention backend, one of {"iga", "g2anet"}. Defaults to "iga".
+        attention (str, optional): Attention backend, one of {"igs", "g2anet"}. Defaults to "igs".
 
     Attributes:
         actor (Actor): Policy network.
@@ -220,10 +220,10 @@ class TD3(object):
         model_name="marlTD3",
         load_model_name=None,
         load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint"),
-        attention="iga",
+        attention="igs",
     ):
         # Initialize the Actor network
-        if attention not in ["iga", "g2anet"]:
+        if attention not in ["igs", "g2anet"]:
             raise ValueError("unknown attention mechanism specified for TD3 model")
         self.num_robots = num_robots
         self.device = device

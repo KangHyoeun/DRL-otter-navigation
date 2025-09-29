@@ -65,7 +65,7 @@ def main(args=None):
         model_name="TDR-MARL-test",
         load_model_name="TDR-MARL-train",
         load_directory=Path("robot_nav/models/MARL/marlTD3/checkpoint"),
-        attention="iga",
+        attention="igs",
     )  # instantiate a model
 
     connections = torch.tensor(

@@ -43,7 +43,7 @@ and information about the goal point a robot learns to navigate to a specified p
 | CNNTD3           |                          TD3 model with 1D CNN encoding of laser state                          |                                                         - |
 | RCPG             | Recurrent Convolution Policy Gradient - adding recurrence layers (lstm/gru/rnn) to CNNTD3 model |                                                         - |
 | MARL: TD3-G2ANet |                     G2ANet attention encoder for TD3 model in MARL setting                      |                                      G2ANet adapted from https://github.com/starry-sky6688/MARL-Algorithms |
-| MARL: TD3-IGA    |                     In-Graph Attention model for TD3 model in MARL setting                      |                                                         - |
+| MARL: TD3-IGS    |                 In-Graph Softmax attention model for TD3 model in MARL setting                  |                                                         - |
 
 **Max Upper Bound Models**
 
