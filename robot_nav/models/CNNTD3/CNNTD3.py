@@ -286,10 +286,10 @@ class CNNTD3(object):
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
-        max_lin_vel=0.5,
-        max_ang_vel=1,
-        goal_reward=100,
-        distance_norm=10,
+        max_lin_vel=3.0,
+        max_ang_vel=0.3,
+        goal_reward=300,
+        distance_norm=100,
         time_step=0.3,
     ):
         """
@@ -479,13 +479,13 @@ class CNNTD3(object):
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)
-        latest_scan[inf_mask] = 7.0
-        latest_scan /= 7
+        latest_scan[inf_mask] = 70.0
+        latest_scan /= 70
 
         # Normalize to [0, 1] range
-        distance /= 10
-        lin_vel = action[0] * 2
-        ang_vel = (action[1] + 1) / 2
+        distance /= 100
+        lin_vel = action[0] / 1.5
+        ang_vel = (action[1] / 0.3 + 1) / 2
         state = latest_scan.tolist() + [distance, cos, sin] + [lin_vel, ang_vel]
 
         assert len(state) == self.state_dim

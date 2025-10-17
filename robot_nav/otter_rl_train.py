@@ -1,50 +1,34 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Otter USV DRL Navigation Training Script
-
-This script trains a DRL agent to navigate the Otter USV using the velocity control interface.
-It integrates the realistic marine vehicle dynamics with the existing DRL framework.
-
-Usage:
-    poetry run python robot_nav/otter_rl_train.py
-"""
-
-import numpy as np
-import torch
-
 from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
-from robot_nav.SIM_ENV.otter_sim import OtterUSVSim
+import torch
+import numpy as np
+from robot_nav.SIM_ENV.otter_sim import OtterSIM
 from utils import get_buffer
 
 
 def main():
-    """Main training function for Otter USV DRL navigation."""
-    
-    # Training parameters
-    action_dim = 2  # [linear_velocity, angular_velocity]
-    max_action = 1.0  # Maximum action value
-    state_dim = 185  # LIDAR (180) + distance + cos + sin (3) + action (2)
+    """Main training function for Otter USV"""
+
+    # Hyperparameters
+    action_dim = 2           
+    max_action = 3
+    state_dim = 185             
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     nr_eval_episodes = 10
-    max_epochs = 60
+    max_epochs = 100
     epoch = 0
-    episodes_per_epoch = 70
+    episodes_per_epoch = 100
     episode = 0
-    train_every_n = 2
-    training_iterations = 80
-    batch_size = 64
-    max_steps = 300
+    train_every_n = 5           # Train every n episodes
+    training_iterations = 100   # Batches per training cycle
+    batch_size = 128
+    max_steps = 500             # Max steps per episode
     steps = 0
     load_saved_buffer = False
     pretrain = False
     pretraining_iterations = 10
-    save_every = 5
+    save_every = 10
     
-    print(f"Using device: {device}")
-    print(f"State dimension: {state_dim}")
-    print(f"Action dimension: {action_dim}")
-    
+    # Initialize model
     model = CNNTD3(
         state_dim=state_dim,
         action_dim=action_dim,
@@ -52,12 +36,12 @@ def main():
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="OtterUSV_CNNTD3",
-    )  # instantiate a model
+        model_name="otter_CNNTD3",
+    )
     
-    sim = OtterUSVSim(
-        world_file="worlds/otter_world.yaml", disable_plotting=False
-    )  # instantiate environment
+    sim = OtterSIM(world_file="/worlds/otter_world.yaml", disable_plotting=True)
+    
+    # Initialize replay buffer
     replay_buffer = get_buffer(
         model,
         sim,
@@ -67,25 +51,24 @@ def main():
         training_iterations,
         batch_size,
     )
-    
+
     latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
-        lin_velocity=0.0, ang_velocity=0.0
-    ) # get the initial step state
+        u_ref=0.0, r_ref=0.0
+    )  # get the initial step state
     
     while epoch < max_epochs:
         state, terminal = model.prepare_state(
             latest_scan, distance, cos, sin, collision, goal, a
-        )
+        )  # get state a state representation from returned data from the environment
         
-        # Get action from DRL model
-        action = model.get_action(np.array(state), True)
+        action = model.get_action(np.array(state), True)  # get an action from the model
         a_in = [
-            (action[0] + 1) * 1.5,  # Linear velocity: [0, 3.0] m/s
-            action[1] * 0.3,  # Angular velocity: [-0.3, 0.3] rad/s
-        ]
+            (action[0] + 1) * 1.5,
+            action[1] * 0.3,
+        ]  # clip linear velocity to [0, 3.0] m/s range
 
         latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
-            lin_velocity=a_in[0], ang_velocity=a_in[1]
+            u_ref=a_in[0], r_ref=a_in[1]
         )  # get data from the environment
         next_state, terminal = model.prepare_state(
             latest_scan, distance, cos, sin, collision, goal, a
@@ -93,7 +76,7 @@ def main():
         replay_buffer.add(
             state, action, reward, terminal, next_state
         )  # add experience to the replay buffer
-        
+
         if (
             terminal or steps == max_steps
         ):  # reset environment of terminal stat ereached, or max_steps were taken
@@ -109,14 +92,13 @@ def main():
             steps = 0
         else:
             steps += 1
-        
+
         if (
             episode + 1
         ) % episodes_per_epoch == 0:  # if epoch is concluded, run evaluation
             episode = 0
             epoch += 1
             evaluate(model, epoch, sim, eval_episodes=nr_eval_episodes)
-
 
 def evaluate(model, epoch, sim, eval_episodes=10):
     print("..............................................")
@@ -133,12 +115,9 @@ def evaluate(model, epoch, sim, eval_episodes=10):
                 latest_scan, distance, cos, sin, collision, goal, a
             )
             action = model.get_action(np.array(state), False)
-            a_in = [
-                (action[0] + 1) * 1.5,  # Linear velocity: [0, 3.0] m/s
-                action[1] * 0.3,  # Angular velocity: [-0.3, 0.3] rad/s
-            ]
+            a_in = [(action[0] + 1) * 1.5, action[1] * 0.3]
             latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
-                lin_velocity=a_in[0], ang_velocity=a_in[1]
+                u_ref=a_in[0], r_ref=a_in[1]
             )
             avg_reward += reward
             count += 1
