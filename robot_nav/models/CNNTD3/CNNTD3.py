@@ -288,9 +288,9 @@ class CNNTD3(object):
         policy_freq=2,
         max_lin_vel=3.0,
         max_ang_vel=0.3,
-        goal_reward=300,
+        goal_reward=1000,
         distance_norm=100,
-        time_step=0.3,
+        time_step=0.05,
     ):
         """
         Trains the CNNTD3 agent using sampled batches from the replay buffer.

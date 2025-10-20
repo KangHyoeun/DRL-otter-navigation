@@ -10,23 +10,23 @@ def main():
 
     # Hyperparameters
     action_dim = 2           
-    max_action = 3
+    max_action = 1
     state_dim = 185             
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     nr_eval_episodes = 10
-    max_epochs = 100
+    max_epochs = 60
     epoch = 0
-    episodes_per_epoch = 100
+    episodes_per_epoch = 70
     episode = 0
-    train_every_n = 5           # Train every n episodes
-    training_iterations = 100   # Batches per training cycle
+    train_every_n = 2           # Train every n episodes
+    training_iterations = 80   # Batches per training cycle
     batch_size = 128
-    max_steps = 500             # Max steps per episode
+    max_steps = 1000             # Max steps per episode
     steps = 0
     load_saved_buffer = False
     pretrain = False
     pretraining_iterations = 10
-    save_every = 10
+    save_every = 5
     
     # Initialize model
     model = CNNTD3(
@@ -39,7 +39,7 @@ def main():
         model_name="otter_CNNTD3",
     )
     
-    sim = OtterSIM(world_file="/worlds/otter_world.yaml", disable_plotting=True)
+    sim = OtterSIM(world_file="/worlds/otter_world_native.yaml", disable_plotting=False)
     
     # Initialize replay buffer
     replay_buffer = get_buffer(

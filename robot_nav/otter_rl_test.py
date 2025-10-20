@@ -17,7 +17,7 @@ def main():
     state_dim = 185
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epoch = 0
-    max_steps = 500
+    max_steps = 1000
     test_scenarios = 1000
     
     model = CNNTD3(

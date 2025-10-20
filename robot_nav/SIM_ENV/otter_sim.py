@@ -4,27 +4,23 @@ sys.path.append('/home/hyo/PythonVehicleSimulator/src')
 import irsim
 import numpy as np
 import random
-from python_vehicle_simulator.vehicles import otter
 from robot_nav.SIM_ENV.sim_env import SIM_ENV
 
 class OtterSIM(SIM_ENV):
     """
-    Otter USV simulation environment wrapper.
+    Otter USV simulation environment wrapper for DRL training.
     
-    This class integrates Otter USV dynamics from Python Vehicle Simulator
-    with IR-SIM for visualization and sensor simulation.
+    This class provides a simplified interface to the IR-SIM native Otter USV.
+    The Otter dynamics are handled entirely by IR-SIM's otter_usv_kinematics,
+    which integrates the full 6-DOF model from Python Vehicle Simulator.
     
     Attributes:
-        env (object): IR-SIM environment instance
-        otter (object): Otter USV dynamics model
-        eta (np.ndarray): 6-DOF position/orientation [x, y, z, phi, theta, psi]
-        nu (np.ndarray): 6-DOF velocities [u, v, w, p, q, r]
-        u_actual (np.ndarray): Actual propeller states [n1, n2]
+        env (object): IR-SIM environment instance with native Otter USV
         dt (float): Simulation time step
         robot_goal (np.ndarray): Goal position [x, y, psi]
     """
     
-    def __init__(self, world_file="otter_world.yaml", disable_plotting=False):
+    def __init__(self, world_file="otter_world_native.yaml", disable_plotting=False):
         """
         Initialize the Otter USV simulation environment.
         
@@ -32,41 +28,36 @@ class OtterSIM(SIM_ENV):
             world_file (str): Path to the world configuration YAML file
             disable_plotting (bool): If True, disables rendering and plotting
         """
-        # Initialize IR-SIM environment for visualization
+        # Initialize IR-SIM environment with native Otter USV
         display = False if disable_plotting else True
         self.env = irsim.make(
             world_file, disable_all_plot=disable_plotting, display=display
         )
-        
-        # Initialize Otter USV with velocity controller
-        self.otter = otter('velocityControl', r=1.5)
         
         # Get simulation parameters
         robot_info = self.env.get_robot_info(0)
         self.robot_goal = robot_info.goal
         self.dt = self.env.step_time
         
-        # Initialize Otter state (6-DOF)
-        robot_state = self.env.get_robot_state()
-        self.eta = np.zeros(6)  # [x, y, z, phi, theta, psi]
-        self.eta[0] = robot_state[0].item()  # x
-        self.eta[1] = robot_state[1].item()  # y
-        self.eta[5] = robot_state[2].item()  # psi (yaw)
-        
-        self.nu = np.zeros(6)  # [u, v, w, p, q, r]
-        self.u_actual = np.zeros(2)  # [n1, n2] propeller states
-        
         print("=" * 60)
-        print("Otter USV Environment Initialized")
+        print("Otter USV Environment Initialized (Native IR-SIM)")
         print("=" * 60)
-        print(f"Robot position: [{self.eta[0]:.2f}, {self.eta[1]:.2f}, {self.eta[5]:.2f}]")
-        print(f"Goal position: {self.robot_goal}")
+        robot_state = self.env.robot.state
+        print(f"Robot position: [{robot_state[0,0]:.2f}, {robot_state[1,0]:.2f}, {robot_state[2,0]:.2f}]")
+        print(f"Goal position: {self.robot_goal.T}")
         print(f"Time step: {self.dt} s")
+        print(f"State dimension: {robot_state.shape[0]}")
         print("=" * 60)
     
     def step(self, u_ref=0.0, r_ref=0.0):
         """
         Perform one step in the simulation using velocity commands.
+        
+        IR-SIM's native otter_usv_kinematics handles:
+        - Velocity controller
+        - 6-DOF dynamics 
+        - Control allocation
+        - Propeller saturation
         
         Args:
             u_ref (float): Desired surge velocity (m/s)
@@ -82,42 +73,28 @@ class OtterSIM(SIM_ENV):
                 - action: Applied action [u_ref, r_ref]
                 - reward: Computed reward
         """
-        # Otter velocity controller
-        u_control = self.otter.velocityControl(self.nu, u_ref, r_ref, self.dt)
-        
-        # Otter dynamics (6-DOF)
-        [self.nu, self.u_actual] = self.otter.dynamics(
-            self.eta, self.nu, self.u_actual, u_control, self.dt
-        )
-        
-        # Update position using kinematic equations
-        # For surface vessel: z=0, phi=0, theta=0, w=0, p=0, q=0
-        self.eta[0] += self.dt * (self.nu[0] * np.cos(self.eta[5]) - self.nu[1] * np.sin(self.eta[5]))
-        self.eta[1] += self.dt * (self.nu[0] * np.sin(self.eta[5]) + self.nu[1] * np.cos(self.eta[5]))
-        self.eta[5] += self.dt * self.nu[5]
-        
-        # Wrap yaw angle to [-pi, pi]
-        self.eta[5] = np.arctan2(np.sin(self.eta[5]), np.cos(self.eta[5]))
-        
-        # Update IR-SIM for visualization and collision detection
-        irsim_state = np.array([[self.eta[0]], [self.eta[1]], [self.eta[5]]])
-        self.env.robot.set_state(irsim_state)
-        
-        # Step IR-SIM environment
-        self.env.step()
+        # Pass velocity commands to IR-SIM
+        # IR-SIM will use otter_usv_kinematics to compute full dynamics
+        action = np.array([[u_ref], [r_ref]])
+        self.env.step(action_id=0, action=action)
         self.env.render()
+        
+        # Get updated state from IR-SIM
+        robot_state = self.env.robot.state
+        
+        # Extract position and orientation
+        x = robot_state[0, 0]
+        y = robot_state[1, 0]
+        psi = robot_state[2, 0]
         
         # Get sensor data
         scan = self.env.get_lidar_scan()
         latest_scan = scan["ranges"]
         
-        # Get robot state from IR-SIM (for collision detection)
-        robot_state = self.env.get_robot_state()
-        
         # Calculate distance and angle to goal
         goal_vector = [
-            self.robot_goal[0].item() - self.eta[0],
-            self.robot_goal[1].item() - self.eta[1],
+            self.robot_goal[0].item() - x,
+            self.robot_goal[1].item() - y,
         ]
         distance = np.linalg.norm(goal_vector)
         
@@ -125,19 +102,19 @@ class OtterSIM(SIM_ENV):
         goal = self.env.robot.arrive
         
         # Calculate orientation relative to goal
-        pose_vector = [np.cos(self.eta[5]), np.sin(self.eta[5])]
+        pose_vector = [np.cos(psi), np.sin(psi)]
         cos, sin = self.cossin(pose_vector, goal_vector)
         
         # Check collision
         collision = self.env.robot.collision
         
         # Action for logging
-        action = [u_ref, r_ref]
+        action_list = [u_ref, r_ref]
         
         # Compute reward
-        reward = self.get_reward(goal, collision, action, latest_scan)
+        reward = self.get_reward(goal, collision, action_list, latest_scan)
         
-        return latest_scan, distance, cos, sin, collision, goal, action, reward
+        return latest_scan, distance, cos, sin, collision, goal, action_list, reward
     
     def reset(
         self, 
@@ -158,23 +135,33 @@ class OtterSIM(SIM_ENV):
         Returns:
             tuple: Initial observation after reset
         """
-        # Reset robot state
+        # Generate random initial state if not provided
         if robot_state is None:
             robot_state = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0]]
         
-        # Reset Otter state
-        self.eta = np.zeros(6)
-        self.eta[0] = robot_state[0][0]
-        self.eta[1] = robot_state[1][0]
-        self.eta[5] = robot_state[2][0]
-        self.nu = np.zeros(6)
-        self.u_actual = np.zeros(2)
+        # Reset IR-SIM robot state
+        # For RobotOtter with 8-DOF state, we only set position/orientation
+        # Velocities and propeller states will be initialized to zero
+        self.env.robot.state[0, 0] = robot_state[0][0]  # x
+        self.env.robot.state[1, 0] = robot_state[1][0]  # y
+        self.env.robot.state[2, 0] = robot_state[2][0]  # psi
         
-        # Reset IR-SIM robot
-        self.env.robot.set_state(
-            state=np.array(robot_state),
-            init=True,
-        )
+        # Reset velocities to zero (if state_dim >= 6)
+        if self.env.robot.state.shape[0] >= 6:
+            self.env.robot.state[3, 0] = 0.0  # u
+            self.env.robot.state[4, 0] = 0.0  # v
+            self.env.robot.state[5, 0] = 0.0  # r
+        
+        # Reset propeller states to zero (if state_dim >= 8)
+        if self.env.robot.state.shape[0] >= 8:
+            self.env.robot.state[6, 0] = 0.0  # n1
+            self.env.robot.state[7, 0] = 0.0  # n2
+        
+        # Update geometry
+        self.env.robot._geometry = self.env.robot.gf.step(self.env.robot.state)
+        
+        # Update init_state for reset functionality
+        self.env.robot._init_state = self.env.robot.state.copy()
         
         # Randomize obstacles
         if random_obstacles:
@@ -197,6 +184,7 @@ class OtterSIM(SIM_ENV):
         else:
             self.env.robot.set_goal(np.array(robot_goal), init=True)
         
+        # Reset IR-SIM environment
         self.env.reset()
         self.robot_goal = self.env.robot.goal
         
@@ -223,9 +211,9 @@ class OtterSIM(SIM_ENV):
             (float): Computed reward for the current state.
         """
         if goal:
-            return 300.0
+            return 1000.0
         elif collision:
-            return -300.0
+            return -1000.0
         else:
             r3 = lambda x: 5.0 - x if x < 5.0 else 0.0
             return action[0] - abs(action[1]) / 2 - r3(min(laser_scan)) / 2
