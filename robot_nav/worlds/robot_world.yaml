@@ -29,6 +29,8 @@ robot:
 
     plot:
       show_trajectory: True
+      show_arrow: True
+      show_velocity_text: True
 
 obstacle:
   - number: 4

@@ -39,7 +39,7 @@ def main():
         model_name="otter_CNNTD3",
     )
     
-    sim = OtterSIM(world_file="/worlds/otter_world_native.yaml", disable_plotting=False)
+    sim = OtterSIM(world_file="/worlds/otter_world.yaml", disable_plotting=True)
     
     # Initialize replay buffer
     replay_buffer = get_buffer(

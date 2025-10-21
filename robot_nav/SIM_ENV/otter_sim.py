@@ -20,7 +20,7 @@ class OtterSIM(SIM_ENV):
         robot_goal (np.ndarray): Goal position [x, y, psi]
     """
     
-    def __init__(self, world_file="otter_world_native.yaml", disable_plotting=False):
+    def __init__(self, world_file="otter_world.yaml", disable_plotting=False):
         """
         Initialize the Otter USV simulation environment.
         
