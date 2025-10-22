@@ -211,9 +211,9 @@ class CNNTD3(object):
         lr=1e-4,
         save_every=0,
         load_model=False,
-        save_directory=Path("robot_nav/models/CNNTD3/checkpoint"),
+        save_directory=Path("./checkpoint"),
         model_name="CNNTD3",
-        load_directory=Path("robot_nav/models/CNNTD3/checkpoint"),
+        load_directory=Path("./checkpoint"),
         use_max_bound=False,
         bound_weight=0.25,
     ):

@@ -12,7 +12,15 @@ def main():
     action_dim = 2           
     max_action = 1
     state_dim = 185             
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Check CUDA availability
+    cuda_available = torch.cuda.is_available()
+    device = torch.device("cuda" if cuda_available else "cpu")
+    print(f"🚀 CUDA available: {cuda_available}")
+    if cuda_available:
+        print(f"   GPU: {torch.cuda.get_device_name(0)}")
+        print(f"   Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+    else:
+        print("   Using CPU (slower training)")
     nr_eval_episodes = 10
     max_epochs = 60
     epoch = 0
@@ -21,7 +29,7 @@ def main():
     train_every_n = 2           # Train every n episodes
     training_iterations = 80   # Batches per training cycle
     batch_size = 128
-    max_steps = 1000             # Max steps per episode
+    max_steps = 2000             # Max steps per episode (Phase 1: 2x for longer episodes)
     steps = 0
     load_saved_buffer = False
     pretrain = False
@@ -39,7 +47,12 @@ def main():
         model_name="otter_CNNTD3",
     )
     
-    sim = OtterSIM(world_file="/worlds/otter_world.yaml", disable_plotting=True)
+    # Initialize simulation with performance optimizations
+    print("🔧 Performance Settings:")
+    print("   - Plotting: DISABLED (faster simulation)")
+    print("   - Phase 1: ENABLED (action frequency control)")
+    print("   - Max steps: 2000 (longer episodes)")
+    sim = OtterSIM(world_file="/worlds/otter_world.yaml", disable_plotting=True, enable_phase1=True)
     
     # Initialize replay buffer
     replay_buffer = get_buffer(
@@ -55,6 +68,10 @@ def main():
     latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
         u_ref=0.0, r_ref=0.0
     )  # get the initial step state
+    
+    # Performance monitoring
+    import time
+    episode_start_time = time.time()
     
     while epoch < max_epochs:
         state, terminal = model.prepare_state(
@@ -80,8 +97,13 @@ def main():
         if (
             terminal or steps == max_steps
         ):  # reset environment of terminal stat ereached, or max_steps were taken
+            # Performance monitoring
+            episode_time = time.time() - episode_start_time
+            print(f"📊 Episode {episode + 1} completed in {episode_time:.2f}s ({steps} steps)")
+            
             latest_scan, distance, cos, sin, collision, goal, a, reward = sim.reset()
             episode += 1
+            episode_start_time = time.time()  # Reset timer for next episode
             if episode % train_every_n == 0:
                 model.train(
                     replay_buffer=replay_buffer,

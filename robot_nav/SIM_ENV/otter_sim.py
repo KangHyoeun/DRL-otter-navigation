@@ -20,13 +20,14 @@ class OtterSIM(SIM_ENV):
         robot_goal (np.ndarray): Goal position [x, y, psi]
     """
     
-    def __init__(self, world_file="otter_world.yaml", disable_plotting=False):
+    def __init__(self, world_file="otter_world.yaml", disable_plotting=False, enable_phase1=True):
         """
         Initialize the Otter USV simulation environment.
         
         Args:
             world_file (str): Path to the world configuration YAML file
             disable_plotting (bool): If True, disables rendering and plotting
+            enable_phase1 (bool): If True, enables Phase 1 action frequency control
         """
         # Initialize IR-SIM environment with native Otter USV
         display = False if disable_plotting else True
@@ -39,9 +40,33 @@ class OtterSIM(SIM_ENV):
         self.robot_goal = robot_info.goal
         self.dt = self.env.step_time
         
-        print("=" * 60)
-        print("Otter USV Environment Initialized (Native IR-SIM)")
-        print("=" * 60)
+        # Phase 1: Action Frequency Control
+        self.enable_phase1 = enable_phase1
+        if self.enable_phase1:
+            # Physics simulation: 0.05s (accurate dynamics)
+            self.physics_dt = self.dt
+            # DRL action update: 1.0s (allow controller settling)
+            self.action_dt = 1.0
+            # Number of physics steps per action
+            self.steps_per_action = int(self.action_dt / self.physics_dt)
+            # Step counter for action frequency control
+            self.step_counter = 0
+            # Current action held for multiple steps
+            self.current_action = np.array([[0.0], [0.0]])
+            
+            print("=" * 60)
+            print("Otter USV Environment Initialized (Native IR-SIM)")
+            print("⭐ PHASE 1 ENABLED: Action Frequency Control")
+            print("=" * 60)
+            print(f"Physics time step: {self.physics_dt:.3f} s")
+            print(f"DRL action interval: {self.action_dt:.3f} s")
+            print(f"Steps per action: {self.steps_per_action}")
+            print(f"Controller settling time: ~1.0s (within action interval)")
+        else:
+            print("=" * 60)
+            print("Otter USV Environment Initialized (Native IR-SIM)")
+            print("=" * 60)
+        
         robot_state = self.env.robot.state
         print(f"Robot position: [{robot_state[0,0]:.2f}, {robot_state[1,0]:.2f}, {robot_state[2,0]:.2f}]")
         print(f"Goal position: {self.robot_goal.T}")
@@ -52,6 +77,11 @@ class OtterSIM(SIM_ENV):
     def step(self, u_ref=0.0, r_ref=0.0):
         """
         Perform one step in the simulation using velocity commands.
+        
+        Phase 1: Action frequency control
+        - Physics updates every 0.05s (accurate)
+        - DRL action updates every 0.5s (controller settling time)
+        - Same action held for multiple physics steps
         
         IR-SIM's native otter_usv_kinematics handles:
         - Velocity controller
@@ -73,9 +103,21 @@ class OtterSIM(SIM_ENV):
                 - action: Applied action [u_ref, r_ref]
                 - reward: Computed reward
         """
+        if self.enable_phase1:
+            # Phase 1: Action frequency control
+            # Update action only at specified intervals (0.5s)
+            if self.step_counter % self.steps_per_action == 0:
+                self.current_action = np.array([[u_ref], [r_ref]])
+            
+            # Use the current (held) action for physics step
+            action = self.current_action
+            self.step_counter += 1
+        else:
+            # Normal mode: action updated every step
+            action = np.array([[u_ref], [r_ref]])
+        
         # Pass velocity commands to IR-SIM
         # IR-SIM will use otter_usv_kinematics to compute full dynamics
-        action = np.array([[u_ref], [r_ref]])
         self.env.step(action_id=0, action=action)
         self.env.render()
         
@@ -137,7 +179,7 @@ class OtterSIM(SIM_ENV):
         """
         # Generate random initial state if not provided
         if robot_state is None:
-            robot_state = [[random.uniform(1, 9)], [random.uniform(1, 9)], [0]]
+            robot_state = [[random.uniform(10, 90)], [random.uniform(10, 90)], [0]]
         
         # Reset IR-SIM robot state
         # For RobotOtter with 8-DOF state, we only set position/orientation
@@ -188,6 +230,11 @@ class OtterSIM(SIM_ENV):
         self.env.reset()
         self.robot_goal = self.env.robot.goal
         
+        # Phase 1: Reset step counter
+        if self.enable_phase1:
+            self.step_counter = 0
+            self.current_action = np.array([[0.0], [0.0]])
+        
         # Initial step with zero action
         action = [0.0, 0.0]
         latest_scan, distance, cos, sin, _, _, action, reward = self.step(
@@ -211,9 +258,9 @@ class OtterSIM(SIM_ENV):
             (float): Computed reward for the current state.
         """
         if goal:
-            return 1000.0
+            return 2000.0
         elif collision:
-            return -1000.0
+            return -2000.0
         else:
             r3 = lambda x: 5.0 - x if x < 5.0 else 0.0
             return action[0] - abs(action[1]) / 2 - r3(min(laser_scan)) / 2
