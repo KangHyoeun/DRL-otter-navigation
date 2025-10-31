@@ -11,7 +11,7 @@ def main():
     # Hyperparameters
     action_dim = 2           
     max_action = 1
-    state_dim = 185             
+    state_dim = 369  # 360 LiDAR + 3 goal + 2 action + 2 velocity + 2 propeller             
     # Check CUDA availability
     cuda_available = torch.cuda.is_available()
     device = torch.device("cuda" if cuda_available else "cpu")
@@ -22,14 +22,14 @@ def main():
     else:
         print("   Using CPU (slower training)")
     nr_eval_episodes = 10
-    max_epochs = 60
+    max_epochs = 10
     epoch = 0
-    episodes_per_epoch = 70
+    episodes_per_epoch = 10
     episode = 0
     train_every_n = 2           # Train every n episodes
     training_iterations = 80   # Batches per training cycle
     batch_size = 128
-    max_steps = 2000             # Max steps per episode (Phase 1: 2x for longer episodes)
+    max_steps = 300             # Max steps per episode (Phase 1: 2x for longer episodes)
     steps = 0
     load_saved_buffer = False
     pretrain = False
@@ -44,15 +44,16 @@ def main():
         device=device,
         save_every=save_every,
         load_model=False,
-        model_name="otter_CNNTD3",
+        model_name="otter_CNNTD3_imazu_scenario",
+        use_max_bound=True,
     )
     
     # Initialize simulation with performance optimizations
     print("🔧 Performance Settings:")
     print("   - Plotting: DISABLED (faster simulation)")
     print("   - Phase 1: ENABLED (action frequency control)")
-    print("   - Max steps: 2000 (longer episodes)")
-    sim = OtterSIM(world_file="/worlds/otter_world.yaml", disable_plotting=True, enable_phase1=True)
+    print("   - Max steps: 1000 (longer episodes)")
+    sim = OtterSIM(world_file="/worlds/imazu_scenario/s1.yaml", disable_plotting=True, enable_phase1=True)
     
     # Initialize replay buffer
     replay_buffer = get_buffer(
@@ -65,7 +66,7 @@ def main():
         batch_size,
     )
 
-    latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
+    latest_scan, distance, cos, sin, collision, goal, a, reward, robot_state = sim.step(
         u_ref=0.0, r_ref=0.0
     )  # get the initial step state
     
@@ -75,20 +76,20 @@ def main():
     
     while epoch < max_epochs:
         state, terminal = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a
+            latest_scan, distance, cos, sin, collision, goal, a, robot_state
         )  # get state a state representation from returned data from the environment
         
         action = model.get_action(np.array(state), True)  # get an action from the model
         a_in = [
             (action[0] + 1) * 1.5,
-            action[1] * 0.3,
+            action[1] * 0.1745,
         ]  # clip linear velocity to [0, 3.0] m/s range
 
-        latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
+        latest_scan, distance, cos, sin, collision, goal, a, reward, robot_state = sim.step(
             u_ref=a_in[0], r_ref=a_in[1]
         )  # get data from the environment
         next_state, terminal = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a
+            latest_scan, distance, cos, sin, collision, goal, a, robot_state
         )  # get a next state representation
         replay_buffer.add(
             state, action, reward, terminal, next_state
@@ -101,7 +102,7 @@ def main():
             episode_time = time.time() - episode_start_time
             print(f"📊 Episode {episode + 1} completed in {episode_time:.2f}s ({steps} steps)")
             
-            latest_scan, distance, cos, sin, collision, goal, a, reward = sim.reset()
+            latest_scan, distance, cos, sin, collision, goal, a, reward, robot_state = sim.reset()
             episode += 1
             episode_start_time = time.time()  # Reset timer for next episode
             if episode % train_every_n == 0:
@@ -109,6 +110,11 @@ def main():
                     replay_buffer=replay_buffer,
                     iterations=training_iterations,
                     batch_size=batch_size,
+                    max_lin_vel=3.0,
+                    max_ang_vel=0.1745,
+                    goal_reward=3000,
+                    distance_norm=20,
+                    time_step=0.1,
                 )  # train the model and update its parameters
 
             steps = 0
@@ -116,11 +122,11 @@ def main():
             steps += 1
 
         if (
-            episode + 1
-        ) % episodes_per_epoch == 0:  # if epoch is concluded, run evaluation
-            episode = 0
+            episode
+        ) % episodes_per_epoch == 0 and episode > 0:  # if epoch is concluded, run evaluation
             epoch += 1
             evaluate(model, epoch, sim, eval_episodes=nr_eval_episodes)
+            episode = 0  # Reset after evaluation so next print shows Episode 1
 
 def evaluate(model, epoch, sim, eval_episodes=10):
     print("..............................................")
@@ -130,15 +136,15 @@ def evaluate(model, epoch, sim, eval_episodes=10):
     goals = 0
     for _ in range(eval_episodes):
         count = 0
-        latest_scan, distance, cos, sin, collision, goal, a, reward = sim.reset()
+        latest_scan, distance, cos, sin, collision, goal, a, reward, robot_state = sim.reset()
         done = False
-        while not done and count < 501:
+        while not done and count < 301:
             state, terminal = model.prepare_state(
-                latest_scan, distance, cos, sin, collision, goal, a
+                latest_scan, distance, cos, sin, collision, goal, a, robot_state
             )
             action = model.get_action(np.array(state), False)
-            a_in = [(action[0] + 1) * 1.5, action[1] * 0.3]
-            latest_scan, distance, cos, sin, collision, goal, a, reward = sim.step(
+            a_in = [(action[0] + 1) * 1.5, action[1] * 0.1745]
+            latest_scan, distance, cos, sin, collision, goal, a, reward, robot_state = sim.step(
                 u_ref=a_in[0], r_ref=a_in[1]
             )
             avg_reward += reward

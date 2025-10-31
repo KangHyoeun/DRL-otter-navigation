@@ -215,8 +215,10 @@ def get_max_bound(
     next_state = next_state.clone()  # Prevents in-place modifications
     reward = reward.clone()  # Ensures original reward is unchanged
     done = done.clone()
-    cos = next_state[:, -4]
-    sin = next_state[:, -3]
+    
+    # FIXED: Correct indexing for extended state [360 LiDAR + 3 goal + 2 action + 2 vel + 2 rps]
+    cos = next_state[:, -8]  # cos is at index -8
+    sin = next_state[:, -7]  # sin is at index -7
     theta = torch.atan2(sin, cos)
 
     # Compute turning steps
@@ -231,7 +233,7 @@ def get_max_bound(
 
     # Compute distance-based steps
     full_turn_steps += 1  # Account for the final turn step
-    distances = (next_state[:, -5] * distance_norm) / (max_lin_vel * time_step)
+    distances = (next_state[:, -9] * distance_norm) / (max_lin_vel * time_step)  # FIXED: distance is at index -9
     final_steps = torch.ceil(distances) + full_turn_steps
     inter_steps = torch.trunc(distances) + full_turn_steps
 

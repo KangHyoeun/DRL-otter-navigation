@@ -5,6 +5,7 @@ import torch
 
 from robot_nav.SIM_ENV.marl_sim import MARL_SIM
 from robot_nav.SIM_ENV.sim import SIM
+from robot_nav.SIM_ENV.otter_sim import OtterSIM
 import numpy as np
 
 skip_on_ci = pytest.mark.skipif(
@@ -14,18 +15,18 @@ skip_on_ci = pytest.mark.skipif(
 
 @skip_on_ci
 def test_sim():
-    sim = SIM("/tests/test_world.yaml", disable_plotting=True)
-    robot_state = sim.env.get_robot_state()
-    state = sim.step(1, 0)
-    next_robot_state = sim.env.get_robot_state()
+    sim = OtterSIM("/worlds/imazu_scenario/imazu_case_01.yaml", disable_plotting=False, enable_phase1=True)
+    robot_state = sim.env.robot.state
+    state = sim.step(u_ref=1, r_ref=0)
+    next_robot_state = sim.env.robot.state
     assert np.isclose(robot_state[0], next_robot_state[0] - 1)
     assert np.isclose(robot_state[1], robot_state[1])
 
-    assert len(state[0]) == 180
-    assert len(sim.env.obstacle_list) == 7
+    assert len(state[0]) == 360
+    assert len(sim.env.obstacle_list) == 1
 
     sim.reset(random_obstacle_ids=[i + 1 for i in range(6)])
-    new_robot_state = sim.env.get_robot_state()
+    new_robot_state = sim.env.robot.state
     assert np.not_equal(robot_state[0], new_robot_state[0])
     assert np.not_equal(robot_state[1], new_robot_state[1])
 
@@ -54,7 +55,7 @@ def test_marl_sim():
 
 @skip_on_ci
 def test_sincos():
-    sim = SIM("/tests/test_world.yaml")
+    sim = OtterSIM("/worlds/imazu_scenario/imazu_case_01.yaml", disable_plotting=False, enable_phase1=True)
     cos, sin = sim.cossin([1, 0], [0, 1])
     assert np.isclose(cos, 0)
     assert np.isclose(sin, 1)

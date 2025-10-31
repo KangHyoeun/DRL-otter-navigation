@@ -1,27 +1,27 @@
 world:
-  height: 100  # the height of the world
-  width: 100   # the height of the world
-  step_time: 0.05  # 10Hz calculate each step
-  sample_time: 0.05  # 10 Hz for render and data extraction
-  collision_mode: 'reactive'
+  height: 100  # 100m maritime area
+  width: 100   # 100m maritime area
+  step_time: 0.05  # 20Hz simulation
+  sample_time: 0.05  # 20Hz rendering
+  collision_mode: 'reactive'  # Maritime collision avoidance
 
 robot:
-  - kinematics: {name: 'otter_usv'}  # Placeholder, actual dynamics in OtterSIM
-    shape: {name: 'rectangle', length: 2.0, width: 1.08}  # Otter USV: L=2.0m, B=1.08m
-    behavior: {name: 'dash'}
-    state: [10, 10, 0, 0, 0, 0, 0, 0]
-    goal: [90, 90, 0]
-    vel_min: [-10.0, -10.0]
-    vel_max: [ 10.0, 10.0 ]
+    kinematics: {name: 'otter_usv'}
+    shape: {name: 'rectangle', length: 2.0, width: 1.08}  # Otter USV dimensions
+    behavior: {name: 'dash'}  # Direct navigation
+    state: [-10, 0, 0, 0, 0, 0, 0, 0]  # Full 8-DOF state: [x, y, psi, u, v, r, n1, n2]
+    goal: [10, 0, 0]  # Destination
+    vel_min: [-10.0, -10.0]  # Maritime speed limits
+    vel_max: [10.0, 10.0]
     arrive_mode: position
-    goal_threshold: 2.0  # Larger threshold for USV
+    goal_threshold: 3.0  # 2m arrival threshold
 
     sensors:
       - type: 'lidar2d'
         range_min: 0
         range_max: 70
         angle_range: 3.14  # 180 degrees
-        number: 180
+        number: 360
         noise: True
         std: 0.08
         angle_std: 0.1
@@ -29,8 +29,8 @@ robot:
         alpha: 0.3
 
     plot:
-      show_trajectory: True
-      show_arrow: True
+      show_arrow: true
+      show_trajectory: true
       show_velocity_text: True
 
 obstacle:

@@ -38,8 +38,10 @@ class Actor(nn.Module):
 
         self.goal_embed = nn.Linear(3, 10)
         self.action_embed = nn.Linear(2, 10)
+        self.vel_embed = nn.Linear(2, 10)
+        self.rps_embed = nn.Linear(2, 10)
 
-        self.layer_1 = nn.Linear(36, 400)
+        self.layer_1 = nn.Linear(76, 400)
         torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
         self.layer_2 = nn.Linear(400, 300)
         torch.nn.init.kaiming_uniform_(self.layer_2.weight, nonlinearity="leaky_relu")
@@ -52,7 +54,7 @@ class Actor(nn.Module):
 
         Args:
             s (torch.Tensor): Input state tensor of shape (batch_size, state_dim).
-                              The last 5 elements are [distance, cos, sin, lin_vel, ang_vel].
+                              The last 9 elements are [distance, cos, sin, u_ref, r_ref, u_actual, r_actual, n1, n2].
 
         Returns:
             (torch.Tensor): Action tensor of shape (batch_size, action_dim),
@@ -60,9 +62,11 @@ class Actor(nn.Module):
         """
         if len(s.shape) == 1:
             s = s.unsqueeze(0)
-        laser = s[:, :-5]
-        goal = s[:, -5:-2]
-        act = s[:, -2:]
+        laser = s[:, :-9]
+        goal = s[:, -9:-6]
+        act = s[:, -6:-4]
+        vel = s[:, -4:-2]
+        rps = s[:, -2:]
         laser = laser.unsqueeze(1)
 
         l = F.leaky_relu(self.cnn1(laser))
@@ -71,10 +75,11 @@ class Actor(nn.Module):
         l = l.flatten(start_dim=1)
 
         g = F.leaky_relu(self.goal_embed(goal))
-
         a = F.leaky_relu(self.action_embed(act))
+        v = F.leaky_relu(self.vel_embed(vel))
+        rps = F.leaky_relu(self.rps_embed(rps))
 
-        s = torch.concat((l, g, a), dim=-1)
+        s = torch.concat((l, g, a, v, rps), dim=-1)
 
         s = F.leaky_relu(self.layer_1(s))
         s = F.leaky_relu(self.layer_2(s))
@@ -109,8 +114,10 @@ class Critic(nn.Module):
 
         self.goal_embed = nn.Linear(3, 10)
         self.action_embed = nn.Linear(2, 10)
+        self.vel_embed = nn.Linear(2, 10)
+        self.rps_embed = nn.Linear(2, 10)
 
-        self.layer_1 = nn.Linear(36, 400)
+        self.layer_1 = nn.Linear(76, 400)
         torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
         self.layer_2_s = nn.Linear(400, 300)
         torch.nn.init.kaiming_uniform_(self.layer_2_s.weight, nonlinearity="leaky_relu")
@@ -119,7 +126,7 @@ class Critic(nn.Module):
         self.layer_3 = nn.Linear(300, 1)
         torch.nn.init.kaiming_uniform_(self.layer_3.weight, nonlinearity="leaky_relu")
 
-        self.layer_4 = nn.Linear(36, 400)
+        self.layer_4 = nn.Linear(76, 400)
         torch.nn.init.kaiming_uniform_(self.layer_1.weight, nonlinearity="leaky_relu")
         self.layer_5_s = nn.Linear(400, 300)
         torch.nn.init.kaiming_uniform_(self.layer_5_s.weight, nonlinearity="leaky_relu")
@@ -134,7 +141,7 @@ class Critic(nn.Module):
 
         Args:
             s (torch.Tensor): Input state tensor of shape (batch_size, state_dim).
-                              The last 5 elements are [distance, cos, sin, lin_vel, ang_vel].
+                              The last 9 elements are [distance, cos, sin, u_ref, r_ref, u_actual, r_actual, n1, n2].
             action (torch.Tensor): Current action tensor of shape (batch_size, action_dim).
 
         Returns:
@@ -142,9 +149,11 @@ class Critic(nn.Module):
                 - q1 (torch.Tensor): First Q-value estimate (batch_size, 1).
                 - q2 (torch.Tensor): Second Q-value estimate (batch_size, 1).
         """
-        laser = s[:, :-5]
-        goal = s[:, -5:-2]
-        act = s[:, -2:]
+        laser = s[:, :-9]
+        goal = s[:, -9:-6]
+        act = s[:, -6:-4]
+        vel = s[:, -4:-2]
+        rps = s[:, -2:]
         laser = laser.unsqueeze(1)
 
         l = F.leaky_relu(self.cnn1(laser))
@@ -155,24 +164,21 @@ class Critic(nn.Module):
         g = F.leaky_relu(self.goal_embed(goal))
 
         a = F.leaky_relu(self.action_embed(act))
+        v = F.leaky_relu(self.vel_embed(vel))
+        rps = F.leaky_relu(self.rps_embed(rps))
 
-        s = torch.concat((l, g, a), dim=-1)
+        s = torch.concat((l, g, a, v, rps), dim=-1)
 
+        # Q1 network
         s1 = F.leaky_relu(self.layer_1(s))
-        self.layer_2_s(s1)
-        self.layer_2_a(action)
-        s11 = torch.mm(s1, self.layer_2_s.weight.data.t())
-        s12 = torch.mm(action, self.layer_2_a.weight.data.t())
-        s1 = F.leaky_relu(s11 + s12 + self.layer_2_a.bias.data)
+        s1 = F.leaky_relu(self.layer_2_s(s1) + self.layer_2_a(action))
         q1 = self.layer_3(s1)
 
+        # Q2 network
         s2 = F.leaky_relu(self.layer_4(s))
-        self.layer_5_s(s2)
-        self.layer_5_a(action)
-        s21 = torch.mm(s2, self.layer_5_s.weight.data.t())
-        s22 = torch.mm(action, self.layer_5_a.weight.data.t())
-        s2 = F.leaky_relu(s21 + s22 + self.layer_5_a.bias.data)
+        s2 = F.leaky_relu(self.layer_5_s(s2) + self.layer_5_a(action))
         q2 = self.layer_6(s2)
+        
         return q1, q2
 
 
@@ -211,9 +217,9 @@ class CNNTD3(object):
         lr=1e-4,
         save_every=0,
         load_model=False,
-        save_directory=Path("./checkpoint"),
+        save_directory=Path("robot_nav/models/CNNTD3/checkpoint"),
         model_name="CNNTD3",
-        load_directory=Path("./checkpoint"),
+        load_directory=Path("robot_nav/models/CNNTD3/checkpoint"),
         use_max_bound=False,
         bound_weight=0.25,
     ):
@@ -287,10 +293,10 @@ class CNNTD3(object):
         noise_clip=0.5,
         policy_freq=2,
         max_lin_vel=3.0,
-        max_ang_vel=0.3,
-        goal_reward=1000,
-        distance_norm=100,
-        time_step=0.05,
+        max_ang_vel=0.1745,
+        goal_reward=10000,
+        distance_norm=180,
+        time_step=0.1,
     ):
         """
         Trains the CNNTD3 agent using sampled batches from the replay buffer.
@@ -457,7 +463,7 @@ class CNNTD3(object):
         )
         print(f"Loaded weights from: {directory}")
 
-    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action):
+    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, robot_state):
         """
         Prepares the environment's raw sensor data and navigation variables into
         a format suitable for learning.
@@ -469,26 +475,52 @@ class CNNTD3(object):
             sin (float): Sine of heading angle to goal.
             collision (bool): Collision status (True if collided).
             goal (bool): Goal reached status.
-            action (list or np.ndarray): Last action taken [lin_vel, ang_vel].
-
+            action (list or np.ndarray): Last action command [u_ref, r_ref].
+            robot_state (list or np.ndarray): Robot state [x, y, psi, u, v, r, n1, n2].
         Returns:
             (tuple):
                 - state (list): Normalized and concatenated state vector.
                 - terminal (int): Terminal flag (1 if collision or goal, else 0).
         """
+
+        scan_min, scan_max = 0, 100
         latest_scan = np.array(latest_scan)
-
         inf_mask = np.isinf(latest_scan)
-        latest_scan[inf_mask] = 70.0
-        latest_scan /= 70
+        latest_scan[inf_mask] = 100.0
+        latest_scan_norm = normalize_state(latest_scan, scan_min, scan_max)
 
-        # Normalize to [0, 1] range
-        distance /= 100
-        lin_vel = action[0] / 1.5
-        ang_vel = (action[1] / 0.3 + 1) / 2
-        state = latest_scan.tolist() + [distance, cos, sin] + [lin_vel, ang_vel]
+        distance_min, distance_max = 0, 20
+        distance_norm = normalize_state(distance, distance_min, distance_max)
+
+        n_min, n_max = -101.7, 103.9
+        n1, n2 = robot_state[6, 0], robot_state[7, 0]
+        n1_norm = normalize_state(n1, n_min, n_max)
+        n2_norm = normalize_state(n2, n_min, n_max)
+
+        u_min, u_max = 0, 3.0
+        u_ref, u_actual = action[0], robot_state[3, 0]
+        u_ref_norm = normalize_state(u_ref, u_min, u_max)
+        u_actual_norm = normalize_state(u_actual, u_min, u_max)
+
+        r_ref_min, r_ref_max = -0.1745, 0.1745
+        r_actual_min, r_actual_max = -0.2862, 0.2862
+        r_ref, r_actual = action[1], robot_state[5, 0]
+        r_ref_norm = normalize_state(r_ref, r_ref_min, r_ref_max)
+        r_actual_norm = normalize_state(r_actual, r_actual_min, r_actual_max)
+
+        # State: LiDAR + Goal + Previous Action + Actual State
+        state = (latest_scan_norm.tolist() + 
+                 [distance_norm, cos, sin] + 
+                 [u_ref_norm, r_ref_norm] +
+                 [u_actual_norm, r_actual_norm, n1_norm, n2_norm])
 
         assert len(state) == self.state_dim
         terminal = 1 if collision or goal else 0
 
         return state, terminal
+
+
+def normalize_state(x, min_val, max_val):
+    x = np.asarray(x, dtype=np.float32)
+    denom = (max_val - min_val) if (max_val - min_val) != 0 else 1.0
+    return np.clip((x - min_val) / denom, 0.0, 1.0)

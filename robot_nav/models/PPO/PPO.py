@@ -420,7 +420,7 @@ class PPO:
         if self.save_every > 0 and self.iter_count % self.save_every == 0:
             self.save(filename=self.model_name, directory=self.save_directory)
 
-    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action):
+    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, robot_state):
         """
         Convert raw sensor and navigation data into a normalized state vector for the policy.
 
@@ -432,16 +432,16 @@ class PPO:
             collision (bool): Whether the robot has collided.
             goal (bool): Whether the robot has reached the goal.
             action (tuple[float, float]): Last action taken (linear and angular velocities).
-
+            robot_state (list or np.array): The state of the robot.
         Returns:
             (tuple[list[float], int]): Processed state vector and terminal flag (1 if terminal, else 0).
         """
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)
-        latest_scan[inf_mask] = 7.0
+        latest_scan[inf_mask] = 100.0
 
-        max_bins = self.state_dim - 5
+        max_bins = self.state_dim - 9
         bin_size = int(np.ceil(len(latest_scan) / max_bins))
 
         # Initialize the list to store the minimum values of each bin
@@ -452,13 +452,28 @@ class PPO:
             # Get the current bin
             bin = latest_scan[i : i + min(bin_size, len(latest_scan) - i)]
             # Find the minimum value in the current bin and append it to the min_values list
-            min_values.append(min(bin) / 7)
+            min_values.append(min(bin) / 100.0)
 
-        # Normalize to [0, 1] range
-        distance /= 10
-        lin_vel = action[0] * 2
-        ang_vel = (action[1] + 1) / 2
-        state = min_values + [distance, cos, sin] + [lin_vel, ang_vel]
+        distance_min, distance_max = 0, 20
+        distance_norm = normalize_state(distance, distance_min, distance_max)
+
+        n_min, n_max = -101.7, 103.9
+        n1, n2 = robot_state[6, 0], robot_state[7, 0]
+        n1_norm = normalize_state(n1, n_min, n_max)
+        n2_norm = normalize_state(n2, n_min, n_max)
+
+        u_min, u_max = 0, 3.0
+        u_ref, u_actual = action[0], robot_state[3, 0]
+        u_ref_norm = normalize_state(u_ref, u_min, u_max)
+        u_actual_norm = normalize_state(u_actual, u_min, u_max)
+
+        r_ref_min, r_ref_max = -0.1745, 0.1745
+        r_actual_min, r_actual_max = -0.2862, 0.2862
+        r_ref, r_actual = action[1], robot_state[5, 0]
+        r_ref_norm = normalize_state(r_ref, r_ref_min, r_ref_max)
+        r_actual_norm = normalize_state(r_actual, r_actual_min, r_actual_max)
+
+        state = min_values + [distance_norm, cos, sin] + [u_ref_norm, r_ref_norm] + [u_actual_norm, r_actual_norm, n1_norm, n2_norm]
 
         assert len(state) == self.state_dim
         terminal = 1 if collision or goal else 0
@@ -499,3 +514,8 @@ class PPO:
             )
         )
         print(f"Loaded weights from: {directory}")
+
+def normalize_state(x, min_val, max_val):
+    x = np.asarray(x, dtype=np.float32)
+    denom = (max_val - min_val) if (max_val - min_val) != 0 else 1.0
+    return np.clip((x - min_val) / denom, 0.0, 1.0)

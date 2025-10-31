@@ -100,10 +100,13 @@ class Critic(nn.Module):
         s1 = F.leaky_relu(self.layer_1(s))
         self.layer_2_s(s1)
         self.layer_2_a(a)
-        s11 = torch.mm(s1, self.layer_2_s.weight.data.t())
-        s12 = torch.mm(a, self.layer_2_a.weight.data.t())
-        s1 = F.leaky_relu(s11 + s12 + self.layer_2_a.bias.data)
+        s1 = F.leaky_relu(self.layer_2_s(s1) + self.layer_2_a(a))
         q = self.layer_3(s1)
+
+        # s11 = torch.mm(s1, self.layer_2_s.weight.data.t())
+        # s12 = torch.mm(a, self.layer_2_a.weight.data.t())
+        # s1 = F.leaky_relu(s11 + s12 + self.layer_2_a.bias.data)
+        # q = self.layer_3(s1)
 
         return q
 
@@ -215,11 +218,11 @@ class DDPG(object):
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
-        max_lin_vel=0.5,
-        max_ang_vel=1,
-        goal_reward=100,
-        distance_norm=10,
-        time_step=0.3,
+        max_lin_vel=3.0,
+        max_ang_vel=0.1745,
+        goal_reward=3000,
+        distance_norm=20,
+        time_step=0.1,
     ):
         """
         Trains the actor and critic networks using a replay buffer and soft target updates.
@@ -383,7 +386,7 @@ class DDPG(object):
         )
         print(f"Loaded weights from: {directory}")
 
-    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action):
+    def prepare_state(self, latest_scan, distance, cos, sin, collision, goal, action, robot_state):
         """
         Processes raw sensor input and additional information into a normalized state representation.
 
@@ -395,16 +398,16 @@ class DDPG(object):
             collision (bool): Whether a collision has occurred.
             goal (bool): Whether the goal has been reached.
             action (list or np.array): The action taken in the previous step.
-
+            robot_state (list or np.array): The state of the robot.
         Returns:
             (tuple): (state vector, terminal flag)
         """
         latest_scan = np.array(latest_scan)
 
         inf_mask = np.isinf(latest_scan)
-        latest_scan[inf_mask] = 7.0
+        latest_scan[inf_mask] = 100.0
 
-        max_bins = self.state_dim - 5
+        max_bins = self.state_dim - 9
         bin_size = int(np.ceil(len(latest_scan) / max_bins))
 
         # Initialize the list to store the minimum values of each bin
@@ -415,15 +418,35 @@ class DDPG(object):
             # Get the current bin
             bin = latest_scan[i : i + min(bin_size, len(latest_scan) - i)]
             # Find the minimum value in the current bin and append it to the min_values list
-            min_values.append(min(bin) / 7)
+            min_values.append(min(bin) / 100.0)
 
-        # Normalize to [0, 1] range
-        distance /= 10
-        lin_vel = action[0] * 2
-        ang_vel = (action[1] + 1) / 2
-        state = min_values + [distance, cos, sin] + [lin_vel, ang_vel]
+        distance_min, distance_max = 0, 20
+        distance_norm = normalize_state(distance, distance_min, distance_max)
+
+        n_min, n_max = -101.7, 103.9
+        n1, n2 = robot_state[6, 0], robot_state[7, 0]
+        n1_norm = normalize_state(n1, n_min, n_max)
+        n2_norm = normalize_state(n2, n_min, n_max)
+
+        u_min, u_max = 0, 3.0
+        u_ref, u_actual = action[0], robot_state[3, 0]
+        u_ref_norm = normalize_state(u_ref, u_min, u_max)
+        u_actual_norm = normalize_state(u_actual, u_min, u_max)
+
+        r_ref_min, r_ref_max = -0.1745, 0.1745
+        r_actual_min, r_actual_max = -0.2862, 0.2862
+        r_ref, r_actual = action[1], robot_state[5, 0]
+        r_ref_norm = normalize_state(r_ref, r_ref_min, r_ref_max)
+        r_actual_norm = normalize_state(r_actual, r_actual_min, r_actual_max)
+
+        state = min_values + [distance_norm, cos, sin] + [u_ref_norm, r_ref_norm] + [u_actual_norm, r_actual_norm, n1_norm, n2_norm]
 
         assert len(state) == self.state_dim
         terminal = 1 if collision or goal else 0
 
         return state, terminal
+
+def normalize_state(x, min_val, max_val):
+    x = np.asarray(x, dtype=np.float32)
+    denom = (max_val - min_val) if (max_val - min_val) != 0 else 1.0
+    return np.clip((x - min_val) / denom, 0.0, 1.0)

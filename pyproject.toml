@@ -18,6 +18,8 @@ dependencies = [
     "mkdocs-material (>=9.6.11,<10.0.0)",
     "scipy (>=1.15.2,<2.0.0)",
     "torch-geometric (>=2.6.1,<3.0.0)",
+    "numpy (>=1.26.0,<2.0.0)",
+    "colregs-core @ file:///../colregs-core",
 ]
 
 [tool.pytest.ini_options]
