@@ -9,6 +9,7 @@ world:
 robot:
     kinematics: {name: 'otter_usv'}
     shape: {name: 'rectangle', length: 2.0, width: 1.08}  # Otter USV dimensions
+    # behavior: {name: 'dash'}
     state: [0, -20, 1.5708, 0, 0, 0, 0, 0]  # Own ship starts at (-45, 0)m heading North
     goal: [0, 0, 1.5708]  # Goal at (0, 45)m North
     vel_min: [-10.0, -10.0]

@@ -25,6 +25,7 @@ class ReplayBuffer(object):
         self.count = 0
         self.buffer = deque()
         random.seed(random_seed)
+        self.priorities = []
 
     def add(self, s, a, r, t, s2):
         """
@@ -37,13 +38,19 @@ class ReplayBuffer(object):
             t (bool): Done flag (True if episode ended).
             s2 (np.ndarray): Next state.
         """
+        priority = abs(r) + 1.0
+
         experience = (s, a, r, t, s2)
         if self.count < self.buffer_size:
             self.buffer.append(experience)
+            self.priorities.append(priority)
             self.count += 1
         else:
+            # Remove oldest element from both buffer and priorities when buffer is full
             self.buffer.popleft()
+            self.priorities.pop(0)
             self.buffer.append(experience)
+            self.priorities.append(priority)
 
     def size(self):
         """
@@ -56,7 +63,7 @@ class ReplayBuffer(object):
 
     def sample_batch(self, batch_size):
         """
-        Sample a batch of experiences from the buffer.
+        Sample a batch of experiences from the buffer using prioritized sampling.
 
         Args:
             batch_size (int): Number of experiences to sample.
@@ -64,10 +71,24 @@ class ReplayBuffer(object):
         Returns:
             (Tuple of np.ndarrays): Batches of states, actions, rewards, done flags, and next states.
         """
-        if self.count < batch_size:
-            batch = random.sample(self.buffer, self.count)
+        # Check if buffer is empty
+        if self.count == 0:
+            raise ValueError("Cannot sample from empty buffer")
+        
+        # Ensure batch_size doesn't exceed buffer size
+        actual_batch_size = min(batch_size, self.count)
+        
+        # Calculate probabilities for prioritized sampling
+        if len(self.priorities) != len(self.buffer):
+            # If mismatch, fall back to uniform sampling (shouldn't happen after fix)
+            indices = np.random.choice(len(self.buffer), actual_batch_size, replace=False)
         else:
-            batch = random.sample(self.buffer, batch_size)
+            probs = np.array(self.priorities) / np.sum(self.priorities)
+            indices = np.random.choice(len(self.buffer), actual_batch_size, p=probs, replace=False)
+
+        # Sample using the indices
+        buffer_list = list(self.buffer)
+        batch = [buffer_list[i] for i in indices]
 
         s_batch = np.array([_[0] for _ in batch])
         a_batch = np.array([_[1] for _ in batch])
@@ -97,6 +118,7 @@ class ReplayBuffer(object):
         Clear all contents of the buffer.
         """
         self.buffer.clear()
+        self.priorities.clear()
         self.count = 0
 
 

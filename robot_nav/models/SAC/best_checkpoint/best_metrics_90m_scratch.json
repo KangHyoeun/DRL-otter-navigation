@@ -1,0 +1,7 @@
+{
+  "epoch": 1,
+  "avg_reward": -3001.1449795295034,
+  "goal_rate": 0.0,
+  "collision_rate": 0.0,
+  "total_episodes": 70
+}

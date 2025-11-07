@@ -52,7 +52,7 @@ def main():
     print("   - Phase 1: ENABLED (action frequency control)")
     print("   - Max steps: 1000 (longer episodes)")
     print("   - Episode 1: SPECIAL BEHAVIOR (straight to goal)")
-    sim = OtterSIM(world_file="/worlds/imazu_scenario/s1.yaml", disable_plotting=False, enable_phase1=True)
+    sim = OtterSIM(world_file="/worlds/imazu_scenario/s1.yaml", disable_plotting=True, enable_phase1=True)
     
     # Initialize replay buffer
     replay_buffer = get_buffer(
@@ -117,6 +117,11 @@ def main():
                     replay_buffer=replay_buffer,
                     iterations=training_iterations,
                     batch_size=batch_size,
+                    max_lin_vel=3.0,
+                    max_ang_vel=0.1745,
+                    goal_reward=3000,
+                    distance_norm=20,
+                    time_step=0.1,
                 )  # train the model and update its parameters
 
             steps = 0

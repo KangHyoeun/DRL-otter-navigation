@@ -20,7 +20,7 @@ class OtterSIM(SIM_ENV):
         robot_goal (np.ndarray): Goal position [x, y, psi]
     """
     
-    def __init__(self, world_file="robot_nav/worlds/imazu_scenario/s1.yaml", disable_plotting=False, enable_phase1=True):
+    def __init__(self, world_file="robot_nav/worlds/imazu_scenario/s1.yaml", disable_plotting=False, enable_phase1=True, max_steps=300):
         """
         Initialize the Otter USV simulation environment.
         
@@ -28,12 +28,21 @@ class OtterSIM(SIM_ENV):
             world_file (str): Path to the world configuration YAML file
             disable_plotting (bool): If True, disables rendering and plotting
             enable_phase1 (bool): If True, enables Phase 1 action frequency control
+            max_steps (int): Maximum steps per episode (used to compute terminal rewards)
         """
         # Initialize IR-SIM environment with native Otter USV
         display = False if disable_plotting else True
         self.env = irsim.make(
             world_file, disable_all_plot=disable_plotting, display=display
         )
+        
+        # Check if robots were loaded
+        if len(self.env.robot_list) == 0:
+            raise ValueError(
+                f"No robots found in the environment! "
+                f"World file: {world_file}\n"
+                f"Please check that the YAML file contains a 'robot' section."
+            )
         
         # Get simulation parameters
         robot_info = self.env.get_robot_info(0)
@@ -43,13 +52,16 @@ class OtterSIM(SIM_ENV):
         # Previous distance for progress reward
         self.prev_distance = None
         
+        # Store max_steps for reward calculation
+        self.max_steps = max_steps
+        
         # Phase 1: Action Frequency Control
         self.enable_phase1 = enable_phase1
         if self.enable_phase1:
-            # Physics simulation: 0.05s (accurate dynamics)
+            # Physics simulation: 0.1s (accurate dynamics)
             self.physics_dt = self.dt
-            # DRL action update: 3.0s (allow controller settling)
-            self.action_dt = 1.0  # Changed from 7.0 to 3.0 for better learning
+            # DRL action update: 1.0s (allow controller settling)
+            self.action_dt = 0.5 
             # Number of physics steps per action
             self.steps_per_action = int(self.action_dt / self.physics_dt)
             # Step counter for action frequency control
@@ -64,7 +76,7 @@ class OtterSIM(SIM_ENV):
             print(f"Physics time step: {self.physics_dt:.3f} s")
             print(f"DRL action interval: {self.action_dt:.3f} s")
             print(f"Steps per action: {self.steps_per_action}")
-            print(f"Controller settling time: ~7.0s (within action interval)")
+            print(f"Controller settling time: ~9.0s (within action interval)")
         else:
             print("=" * 60)
             print("Otter USV Environment Initialized (Native IR-SIM)")
@@ -82,7 +94,7 @@ class OtterSIM(SIM_ENV):
         Perform one step in the simulation using velocity commands.
         
         Phase 1: Action frequency control
-        - Physics updates every 0.05s (accurate)
+        - Physics updates every 0.1s (accurate)
         - DRL action updates every 0.5s (controller settling time)
         - Same action held for multiple physics steps
         
@@ -146,13 +158,20 @@ class OtterSIM(SIM_ENV):
             self.robot_goal[1].item() - y,
         ]
         distance = np.linalg.norm(goal_vector)
-        self.prev_distance = distance
+
+        # ⭐ Progress reward 계산
+        if self.prev_distance is not None:
+            progress = self.prev_distance - distance
+        else:
+            progress = 0.0
+
         goal = self.env.robot.arrive
         pose_vector = [np.cos(psi), np.sin(psi)]
         cos, sin = self.cossin(pose_vector, goal_vector)
         collision = self.env.robot.collision
         action = [u_ref, r_ref]
-        reward = self.get_reward(goal, collision, action, latest_scan)
+        reward = self.get_reward(goal, collision, action, latest_scan, progress)
+        self.prev_distance = distance
 
         return latest_scan, distance, cos, sin, collision, goal, action, reward, robot_state
     
@@ -181,21 +200,23 @@ ze
             (tuple): Initial observation after reset, including LIDAR scan, distance, cos/sin,
                    and reward-related flags and values.
         """
-        if robot_state is None:
-            self.env.robot.state[0, 0] = 0.0
-            self.env.robot.state[1, 0] = -20
-            self.env.robot.state[2, 0] = random.uniform(85 * np.pi / 180, 95 * np.pi / 180)
-            self.env.robot.state[3, 0] = 0.0  # u
-            self.env.robot.state[4, 0] = 0.0  # v
-            self.env.robot.state[5, 0] = 0.0  # r
-            self.env.robot.state[6, 0] = 0.0  # n1
-            self.env.robot.state[7, 0] = 0.0  # n2
+        # If robot_state is provided, set it explicitly
+        if robot_state is not None:
+            # Convert to numpy array if needed
+            if isinstance(robot_state, list):
+                robot_state = np.array(robot_state)
+            # Set state manually (overrides YAML)
+            self.env.robot.set_state(robot_state, init=True)
         
-        # Update geometry
-        self.env.robot._geometry = self.env.robot.gf.step(self.env.robot.state)
-        
-        # Update init_state for reset functionality
-        self.env.robot._init_state = self.env.robot.state.copy()
+        # if robot_state is None:
+        #     self.env.robot.state[0, 0] = 0.0
+        #     self.env.robot.state[1, 0] = -90 # initial position = (0, -40)m
+        #     self.env.robot.state[2, 0] = np.pi / 2 # heading angle = 90 degrees
+        #     self.env.robot.state[3, 0] = 0.0  # u
+        #     self.env.robot.state[4, 0] = 0.0  # v
+        #     self.env.robot.state[5, 0] = 0.0  # r
+        #     self.env.robot.state[6, 0] = 0.0  # n1
+        #     self.env.robot.state[7, 0] = 0.0  # n2
         
         # Randomize obstacles (only if Otter USV obstacles exist)
         if random_obstacles and len(self.env.obstacle_list) > 0:
@@ -210,14 +231,14 @@ ze
                     ids=random_obstacle_ids,
                     non_overlapping=True,
                 )
-        # No need to manually reset obstacles in empty world (s1.yaml)
-        # Obstacles will use their default YAML configuration if present
 
         if robot_goal is None:
             robot_goal = [0, 0, np.pi / 2]
         self.env.robot.set_goal(np.array(robot_goal), init=True)
         self.env.reset()
         self.robot_goal = self.env.robot.goal
+
+        self.prev_distance = None
         
         # Phase 1: Reset step counter
         if self.enable_phase1:
@@ -230,56 +251,65 @@ ze
         )
         
         return latest_scan, distance, cos, sin, False, False, action, reward, robot_state
-    
-    @staticmethod
-    def get_reward(goal, collision, action, latest_scan):
-        """
-        IMPROVED Reward Function - Progress Dominant
-        
-        Design philosophy:
-        - Focus on PROGRESS (getting closer to goal)
-        - Reward FORWARD MOTION aligned with goal
-        - Keep agent ACTIVE (penalize staying still)
-        - Make every step matter (not just goal/collision)
-        
-        Expected behavior:
-        - Good progress: +80~120 per step
-        - Goal arrival (~200 steps): +16,000~24,000 + 3000 (goal bonus)
-        - No progress: -5~-10 per step
 
-        Args:
-            goal (bool): Whether the goal has been reached.
-            collision (bool): Whether a collision occurred.
-            action (list): The action taken [u_ref, r_ref].
-            latest_scan (list): The LIDAR scan readings.
-            distance (float): Distance to goal.
-            cos (float): Cosine of angle to goal (heading alignment).
-            prev_distance (float): Previous distance to goal.
-            velocity (list): The velocity [u, r].
-            propeller (list): The propeller [n1, n2].
-        Returns:
-            (float): Computed reward for the current state.
+    def get_reward(self, goal, collision, action, latest_scan, progress):
         """
-        # Terminal rewards
-        if goal:
-            return 3000.0
-        elif collision:
-            return -3000.0
+        Calculate reward based on goal, collision, progress, and obstacles.
         
-        # 6. OBSTACLE PENALTY
+        Terminal rewards are computed as:
+        - Goal reward: max_steps * 10
+        - Collision penalty: max_steps * -10
+        
+        Args:
+            goal (bool): Whether goal was reached
+            collision (bool): Whether collision occurred
+            action (list): Action taken [u_ref, r_ref]
+            latest_scan (list): LIDAR scan data
+            progress (float): Distance progress since last step
+            
+        Returns:
+            float: Reward value
+        """
+        # Terminal rewards (computed from max_steps)
+        goal_reward = self.max_steps * 10.0
+        collision_penalty = self.max_steps * -10.0
+        
+        if goal:
+            return goal_reward
+        elif collision:
+            return collision_penalty
+        
+        if self.max_steps == 300:
+            progress_reward = progress * 100.0  
+        elif self.max_steps == 1000:
+            progress_reward = progress * 300.0  # Was 100.0!
+        else:
+            progress_reward = progress * 50.0
+        
+        # 3. OBSTACLE PENALTY
         min_distance = min(latest_scan)
         if min_distance < 5.0:
-            obstacle_penalty = -(5.0 - min_distance) * 2.0
+            if self.max_steps == 300:
+                obstacle_penalty = -(5.0 - min_distance) * 10.0
+            elif self.max_steps == 1000:
+                obstacle_penalty = -(5.0 - min_distance) * 30.0
+            else:
+                obstacle_penalty = -(5.0 - min_distance) * 5.0
         else:
             obstacle_penalty = 0.0
         
-        # 7. STEP PENALTY (very small)
-        step_penalty = -3.0  # Reduced from -1.0
-        
-        
+        # 5. STEP PENALTY 
+        if self.max_steps == 300:
+            step_penalty = -1.0  # Encourage faster completion
+        elif self.max_steps == 1000:
+            step_penalty = -3.0  # Encourage faster completion
+        else:
+            step_penalty = -1.0  # Encourage faster completion
+                
         total_reward = (
-            obstacle_penalty +      # -5 near obstacles
-            step_penalty            # -0.5 per step
+            progress_reward +       # +0.5~1.0 bonus
+            obstacle_penalty +      # -15 near obstacles
+            step_penalty            # -2 per step
         )
         
         return total_reward

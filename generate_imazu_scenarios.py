@@ -141,11 +141,14 @@ yaml_template = """world:
   sample_time: 0.1  # 20Hz rendering
   collision_mode: 'reactive'  # Maritime collision avoidance
 
+coordinate_system: maritime
+
 robot:
     kinematics: {{name: 'otter_usv'}}
     shape: {{name: 'rectangle', length: 2.0, width: 1.08}}  # Otter USV dimensions
-    state: [-90, 0, 0, 0, 0, 0, 0, 0]  # Own ship starts at (-45, 0)m heading North
-    goal: [0, 0, 0]  # Goal at (0, 45)m North
+    # behavior: {{name: 'dash', reference_velocity: 3.0}}
+    state: [-90, 0, 0, 0, 0, 0, 0, 0]  # Own ship starts at (-90, 0)m heading North
+    goal: [0, 0, 0]  # Goal at (0, 90)m North
     vel_min: [-10.0, -10.0]
     vel_max: [10.0, 10.0]
     arrive_mode: position
@@ -160,7 +163,7 @@ robot:
         noise: True
         std: 0.08
         angle_std: 0.1
-        offset: [0, 0, 0]
+        offset: [0, 0, 3.14159]
         alpha: 0.3
 
     plot:
@@ -174,6 +177,8 @@ obstacle:
   # World boundary
   - shape: {{name: 'linestring', vertices: [[-50, -100], [50, -100], [50, 100], [-50, 100], [-50, -100]]}}
     kinematics: {{name: 'static'}}
+    coordinate_system: math
+    unobstructed: False # 뚫고 나가는가? 아니요
     state: [0, 0, 0]
 """
 
@@ -189,8 +194,8 @@ def generate_obstacle_yaml(target_ships):
         # Calculate goal position (ship travels through collision point toward opposite direction)
         # Collision point is at origin (0, 0)
         # Goal is 2x distance beyond collision point
-        goal_x = -2 * x_m
-        goal_y = -2 * y_m
+        goal_x = -x_m
+        goal_y = -y_m
         
         obstacle_yaml = f"""  - number: {i}
     kinematics: {{name: 'otter_usv'}}

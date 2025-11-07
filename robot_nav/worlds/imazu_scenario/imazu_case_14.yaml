@@ -6,11 +6,14 @@ world:
   sample_time: 0.1  # 20Hz rendering
   collision_mode: 'reactive'  # Maritime collision avoidance
 
+coordinate_system: maritime
+
 robot:
     kinematics: {name: 'otter_usv'}
     shape: {name: 'rectangle', length: 2.0, width: 1.08}  # Otter USV dimensions
-    state: [-90, 0, 0, 0, 0, 0, 0, 0]  # Own ship starts at (-45, 0)m heading North
-    goal: [0, 0, 0]  # Goal at (0, 45)m North
+    # behavior: {name: 'dash', reference_velocity: 3.0}
+    state: [-90, 0, 0, 0, 0, 0, 0, 0]  # Own ship starts at (-90, 0)m heading North
+    goal: [0, 0, 0]  # Goal at (0, 90)m North
     vel_min: [-10.0, -10.0]
     vel_max: [10.0, 10.0]
     arrive_mode: position
@@ -25,7 +28,7 @@ robot:
         noise: True
         std: 0.08
         angle_std: 0.1
-        offset: [0, 0, 0]
+        offset: [0, 0, 3.14159]
         alpha: 0.3
 
     plot:
@@ -42,7 +45,7 @@ obstacle:
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [-88.635, 15.630, -0.1745, 0, 0, 0, 0, 0]
-    goal: [177.270, -31.260, -0.1745]
+    goal: [88.635, -15.630, -0.1745]
     arrive_mode: position
     goal_threshold: 4.0
 
@@ -54,7 +57,7 @@ obstacle:
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [-63.645, 63.645, -0.7854, 0, 0, 0, 0, 0]
-    goal: [127.290, -127.290, -0.7854]
+    goal: [63.645, -63.645, -0.7854]
     arrive_mode: position
     goal_threshold: 4.0
 
@@ -66,7 +69,7 @@ obstacle:
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [0.000, 90.000, -1.5708, 0, 0, 0, 0, 0]
-    goal: [-0.000, -180.000, -1.5708]
+    goal: [-0.000, -90.000, -1.5708]
     arrive_mode: position
     goal_threshold: 4.0
 
@@ -74,4 +77,6 @@ obstacle:
   # World boundary
   - shape: {name: 'linestring', vertices: [[-50, -100], [50, -100], [50, 100], [-50, 100], [-50, -100]]}
     kinematics: {name: 'static'}
+    coordinate_system: math
+    unobstructed: False # 뚫고 나가는가? 아니요
     state: [0, 0, 0]
