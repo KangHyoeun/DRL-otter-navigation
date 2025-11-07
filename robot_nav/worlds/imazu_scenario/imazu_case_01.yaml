@@ -1,7 +1,7 @@
 world:
   height: 200  # 200m maritime area (North-South)
-  width: 100   # 100m maritime area (East-West)
-  offset: [-50, -100]
+  width: 200   # 100m maritime area (East-West)
+  offset: [-100, -100]
   step_time: 0.1  # 20Hz simulation
   sample_time: 0.1  # 20Hz rendering
   collision_mode: 'reactive'  # Maritime collision avoidance
@@ -38,7 +38,7 @@ robot:
 
 obstacle:
   - number: 1
-    kinematics: {name: 'otter_usv'}
+    kinematics: {name: 'otter_usv'}  # HEAD-ON
     behavior: {name: 'dash', reference_velocity: 3.0}
     vel_max: [10.0, 10.0]
     vel_min: [-10.0, -10.0]
