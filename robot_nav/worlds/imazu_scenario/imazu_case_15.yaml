@@ -1,7 +1,7 @@
 world:
   height: 200  # 200m maritime area (North-South)
-  width: 100   # 100m maritime area (East-West)
-  offset: [-50, -100]
+  width: 200   # 100m maritime area (East-West)
+  offset: [-100, -100]
   step_time: 0.1  # 20Hz simulation
   sample_time: 0.1  # 20Hz rendering
   collision_mode: 'reactive'  # Maritime collision avoidance
@@ -56,20 +56,20 @@ obstacle:
     vel_min: [-10.0, -10.0]
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
-    state: [-63.645, 63.645, -0.7854, 0, 0, 0, 0, 0]
-    goal: [63.645, -63.645, -0.7854]
+    state: [0.000, 90.000, -1.5708, 0, 0, 0, 0, 0]
+    goal: [-0.000, -90.000, -1.5708]
     arrive_mode: position
     goal_threshold: 4.0
 
   - number: 3
     kinematics: {name: 'otter_usv'}
-    behavior: {name: 'dash', reference_velocity: 3.0}
+    behavior: {name: 'dash', reference_velocity: 2.121}
     vel_max: [10.0, 10.0]
     vel_min: [-10.0, -10.0]
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
-    state: [0.000, 90.000, -1.5708, 0, 0, 0, 0, 0]
-    goal: [-0.000, -90.000, -1.5708]
+    state: [-63.645, 63.645, -0.7854, 0, 0, 0, 0, 0]
+    goal: [63.645, -63.645, -0.7854]
     arrive_mode: position
     goal_threshold: 4.0
 
