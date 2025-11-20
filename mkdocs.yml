@@ -1,35 +1,40 @@
-extra:
-  python_path:
-  - ./robot_nav
-nav:
-- Home: index.md
-- API Reference:
-    IR-SIM:
-      - SIM: api/IR-SIM/ir-sim
-      - MARL SIM: api/IR-SIM/ir-marl-sim
-    Models:
-      - DDPG: api/models/DDPG.md
-      - TD3: api/models/TD3.md
-      - CNNTD3: api/models/cnntd3.md
-      - RCPG: api/models/RCPG.md
-      - HCM: api/models/HCM.md
-      - PPO: api/models/PPO.md
-      - SAC: api/models/SAC.md
-      - MARL:
-          - HardSoft Attention: api/models/MARL/Attention
-          - TD3: api/models/MARL/TD3
-    Training:
-      - Train: api/Training/train.md
-      - Train RNN: api/Training/trainrnn.md
-    Testing:
-      - Test: api/Testing/test.md
-      - Test RNN: api/Testing/testrnn.md
-    Utils:
-      - Replay Buffer: api/Utils/replay_buffer.md
-      - Utils: api/Utils/utils.md
-plugins:
-- search
-- mkdocstrings
-site_name: DRL-robot-navigation-IR-SIM
+site_name: DRL-Otter-Navigation
+site_description: 'Autonomous COLREGs-Compliant Navigation using Deep Reinforcement Learning.'
 theme:
   name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+    - scheme: slate
+      primary: blue
+      accent: blue
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+
+nav:
+  - 'Home': 'index.md'
+  - 'Getting Started':
+    - 'Installation': 'getting-started/installation.md'
+    - 'Project Structure': 'getting-started/structure.md'
+  - 'User Guide':
+    - 'Training Curriculum': 'user-guide/training.md'
+    - 'Monitoring': 'user-guide/monitoring.md'
+  - 'API Reference':
+    - 'OtterSIM Environment': 'api/otter_sim.md'
+    - 'CNNPPO Agent': 'api/cnnppo.md'
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences

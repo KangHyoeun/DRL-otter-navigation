@@ -130,7 +130,7 @@ def analyze_single_scenario(case_num, yaml_path):
         
         print(f"📍 Position: ({ts['position'][0,0]:.1f}, {ts['position'][1,0]:.1f}) m")
         print(f"📐 Heading: {ts['heading']:.1f}° (Maritime)")
-        print(f"⚡ Speed: {ts['speed']:.1f} m/s")
+        print(f"⚡ Speed: {ts['speed']:.2f} m/s")
         
         # Distance
         distance = np.linalg.norm(own_ship['position'] - ts['position'])

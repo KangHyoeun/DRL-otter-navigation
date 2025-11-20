@@ -149,7 +149,7 @@ robot:
     shape: {{name: 'rectangle', length: 2.0, width: 1.08}}  # Otter USV dimensions
     # behavior: {{name: 'dash', reference_velocity: 3.0}}
     state: [-90, 0, 0, 0, 0, 0, 0, 0]  # Own ship starts at (-90, 0)m heading North
-    goal: [0, 0, 0]  # Goal at (0, 90)m North
+    goal: [90, 0, 0]  # Goal at (90, 0)m North
     vel_min: [-10.0, -10.0]
     vel_max: [10.0, 10.0]
     arrive_mode: position
@@ -198,7 +198,7 @@ def generate_obstacle_yaml(target_ships):
         goal_x = -x_m
         goal_y = -y_m
         
-        obstacle_yaml = f"""  - number: {i}
+        obstacle_yaml = f"""  - number: 1
     kinematics: {{name: 'otter_usv'}}
     behavior: {{name: 'dash', reference_velocity: {ship["u"]}}}
     vel_max: [10.0, 10.0]

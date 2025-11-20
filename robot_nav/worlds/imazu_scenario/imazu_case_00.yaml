@@ -18,6 +18,8 @@ robot:
     vel_max: [10.0, 10.0]
     arrive_mode: position
     goal_threshold: 4.0
+    # V_current: 0.3
+    # beta_current: 30.0
 
     sensors:
       - type: 'lidar2d'
@@ -37,17 +39,17 @@ robot:
       show_velocity_text: True
 
 obstacle:
-  - number: 1
-    kinematics: {name: 'otter_usv'}
-    behavior: {name: 'dash', reference_velocity: 3.0}
-    vel_max: [10.0, 10.0]
-    vel_min: [-10.0, -10.0]
-    shape:
-      - {name: 'rectangle', length: 2.0, width: 1.08}
-    state: [0.000, 90.000, -1.5708, 0, 0, 0, 0, 0]
-    goal: [-0.000, -90.000, -1.5708]
-    arrive_mode: position
-    goal_threshold: 4.0
+  # - number: 1
+  #   kinematics: {name: 'otter_usv'}
+  #   behavior: {name: 'dash', reference_velocity: 3.0}
+  #   vel_max: [10.0, 10.0]
+  #   vel_min: [-10.0, -10.0]
+  #   shape:
+  #     - {name: 'rectangle', length: 2.0, width: 1.08}
+  #   state: [90.000, 0.000, 3.1416, 0, 0, 0, 0, 0]
+  #   goal: [-90.000, -0.000, 3.1416]
+  #   arrive_mode: position
+  #   goal_threshold: 4.0
 
   
   # World boundary
