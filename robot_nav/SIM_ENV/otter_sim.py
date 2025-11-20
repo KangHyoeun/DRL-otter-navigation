@@ -5,81 +5,120 @@ import irsim
 import numpy as np
 import random
 from robot_nav.SIM_ENV.sim_env import SIM_ENV
+from irsim.util.util import WrapToPi
+from colregs_core.utils import distance, cross_track_error
+from colregs_core.geometry import heading_speed_to_velocity, math_to_ned_heading, math_to_maritime_position
+from colregs_core.reward import JeonRewardCalculator
+from colregs_core.risk import ShipDomainParams, JeonCollisionRisk, ChunCollisionRisk
 
 class OtterSIM(SIM_ENV):
     """
     Otter USV simulation environment wrapper for DRL training.
-    
-    This class provides a simplified interface to the IR-SIM native Otter USV.
-    The Otter dynamics are handled entirely by IR-SIM's otter_usv_kinematics,
-    which integrates the full 6-DOF model from Python Vehicle Simulator.
-    
-    Attributes:
-        env (object): IR-SIM environment instance with native Otter USV
-        dt (float): Simulation time step
-        robot_goal (np.ndarray): Goal position [x, y, psi]
+    Integrates IR-SIM's native Otter USV with 6-DOF dynamics.
     """
     
-    def __init__(self, world_file="robot_nav/worlds/imazu_scenario/s1.yaml", disable_plotting=False, enable_phase1=True, max_steps=300):
+    def __init__(self, world_file="robot_nav/worlds/imazu_scenario/imazu_case_01.yaml", 
+                 disable_plotting=True, enable_phase1=True, max_steps=1000,
+                 cr_method='jeon', w_efficiency=1.0, w_safety=1.0,
+                 os_speed_for_cr: float = 3.0, ts_speed_for_cr: float = 3.0):
         """
-        Initialize the Otter USV simulation environment.
+        Initialize Otter USV simulation environment.
         
         Args:
-            world_file (str): Path to the world configuration YAML file
-            disable_plotting (bool): If True, disables rendering and plotting
-            enable_phase1 (bool): If True, enables Phase 1 action frequency control
-            max_steps (int): Maximum steps per episode (used to compute terminal rewards)
+            world_file: Path to world configuration YAML
+            disable_plotting: Disable rendering if True
+            enable_phase1: Enable action frequency control if True
+            max_steps: Maximum steps per episode for terminal reward calculation
+            cr_method: Collision risk calculation method ('jeon' or 'chun')
+            w_efficiency: Weight for efficiency rewards
+            w_safety: Weight for safety rewards
+            os_speed_for_cr: OS speed for CR calculation (Jeon)
+            ts_speed_for_cr: TS speed for CR calculation (Jeon)
         """
-        # Initialize IR-SIM environment with native Otter USV
         display = False if disable_plotting else True
         self.env = irsim.make(
             world_file, disable_all_plot=disable_plotting, display=display
         )
         
-        # Check if robots were loaded
         if len(self.env.robot_list) == 0:
             raise ValueError(
-                f"No robots found in the environment! "
-                f"World file: {world_file}\n"
-                f"Please check that the YAML file contains a 'robot' section."
+                f"No robots found! World file: {world_file}\n"
+                f"Check YAML file contains 'robot' section."
             )
         
-        # Get simulation parameters
         robot_info = self.env.get_robot_info(0)
         self.robot_goal = robot_info.goal
         self.dt = self.env.step_time
 
-        # Previous distance for progress reward
         self.prev_distance = None
-        
-        # Store max_steps for reward calculation
+        self.prev_heading = None
+        # Initialize start_position from robot's initial state
+        robot_state = self.env.robot.state
+        start_pos_math = [robot_state[0, 0], robot_state[1, 0]]
+        self.start_position = list(math_to_maritime_position(start_pos_math[0], start_pos_math[1]))
+        self.goal_position = list(math_to_maritime_position(self.robot_goal[0, 0], self.robot_goal[1, 0]))
         self.max_steps = max_steps
+        self.cr_method = cr_method.lower()
+        self.w_efficiency = w_efficiency
+        self.w_safety = w_safety
+        self.os_speed_for_cr = os_speed_for_cr
+        self.ts_speed_for_cr = ts_speed_for_cr
         
-        # Phase 1: Action Frequency Control
+        # Initialize Ship Domain for CR calculation
+        self.ship_domain = ShipDomainParams(
+            r_bow=6.0,
+            r_stern=2.0,
+            r_starboard=6.0,
+            r_port=2.0
+        )
+        
+        # Initialize CR calculator
+        if self.cr_method == 'jeon':
+            self.cr_calculator = JeonCollisionRisk(
+                ship_domain=self.ship_domain,
+                d_obs=200.0,
+                cr_obs=0.3,
+                os_speed=2.0,
+                ts_speed=2.0
+            )
+        elif self.cr_method == 'chun':
+            self.cr_calculator = ChunCollisionRisk(
+                ship_domain=self.ship_domain
+            )
+        else:
+            raise ValueError(f"Unknown CR method: {cr_method}. Use 'jeon' or 'chun'.")
+        
+        # Initialize Reward Calculator
+        self.reward_calculator = JeonRewardCalculator(
+            d_max=10.0,
+            v_ref=2.0,
+            cr_allowable=0.3,
+            dt=self.dt,
+            ship_domain=self.ship_domain,
+            d_obs=200.0,
+            phi_max=4.0,
+            cr_method=self.cr_method,
+            os_speed_for_cr=self.os_speed_for_cr,
+            ts_speed_for_cr=self.ts_speed_for_cr
+        )
+
         self.enable_phase1 = enable_phase1
         if self.enable_phase1:
-            # Physics simulation: 0.1s (accurate dynamics)
             self.physics_dt = self.dt
-            # DRL action update: 1.0s (allow controller settling)
-            self.action_dt = 0.5 
-            # Number of physics steps per action
+            self.action_dt = 0.5
             self.steps_per_action = int(self.action_dt / self.physics_dt)
-            # Step counter for action frequency control
             self.step_counter = 0
-            # Current action held for multiple steps
             self.current_action = np.array([[0.0], [0.0]])
             
             print("=" * 60)
-            print("Otter USV Environment Initialized (Native IR-SIM)")
-            print("⭐ PHASE 1 ENABLED: Action Frequency Control")
+            print("Otter USV Environment - PHASE 1 ENABLED")
             print("=" * 60)
             print(f"Physics time step: {self.physics_dt:.3f} s")
             print(f"DRL action interval: {self.action_dt:.3f} s")
             print(f"Steps per action: {self.steps_per_action}")
-            print(f"Controller settling time: ~9.0s (within action interval)")
         else:
             print("=" * 60)
-            print("Otter USV Environment Initialized (Native IR-SIM)")
+            print("Otter USV Environment Initialized")
             print("=" * 60)
         
         robot_state = self.env.robot.state
@@ -91,136 +130,150 @@ class OtterSIM(SIM_ENV):
     
     def step(self, u_ref=0.0, r_ref=0.087):
         """
-        Perform one step in the simulation using velocity commands.
-        
-        Phase 1: Action frequency control
-        - Physics updates every 0.1s (accurate)
-        - DRL action updates every 0.5s (controller settling time)
-        - Same action held for multiple physics steps
-        
-        IR-SIM's native otter_usv_kinematics handles:
-        - Velocity controller
-        - 6-DOF dynamics 
-        - Control allocation
-        - Propeller saturation
+        Execute one simulation step with velocity commands.
         
         Args:
-            u_ref (float): Desired surge velocity (m/s)
-            r_ref (float): Desired yaw rate (rad/s)
+            u_ref: Desired surge velocity (m/s)
+            r_ref: Desired yaw rate (rad/s)
             
         Returns:
-            tuple: (scan, distance, cos, sin, collision, goal, action, reward)
-                - scan: LIDAR scan data
-                - distance: Distance to goal
-                - cos, sin: Orientation relative to goal
-                - collision: Collision flag
-                - goal: Goal reached flag
-                - action: Applied action [u_ref, r_ref]
-                - reward: Computed reward
+            tuple: (scan, distance_to_goal, y_e, collision, goal_reached, action, reward, robot_state, CR_max)
         """
         if self.enable_phase1:
-            # Phase 1: Action frequency control
-            # Update action only at specified intervals (1.0s)
             if self.step_counter % self.steps_per_action == 0:
                 self.current_action = np.array([[u_ref], [r_ref]])
-            
-            # Use the current (held) action for physics step
             action = self.current_action
             self.step_counter += 1
         else:
-            # Normal mode: action updated every step
             action = np.array([[u_ref], [r_ref]])
         
-        # Pass velocity commands to IR-SIM
-        # IR-SIM will use otter_usv_kinematics to compute full dynamics
         self.env.step(action_id=0, action=action)
         self.env.render()
         
-        # Get updated state from IR-SIM
         robot_state = self.env.robot.state
         
-        # Extract position and orientation
-        x = robot_state[0, 0]
-        y = robot_state[1, 0]
-        psi = robot_state[2, 0]
-        u = robot_state[3, 0]
-        r = robot_state[5, 0]
-        n1 = robot_state[6, 0]
-        n2 = robot_state[7, 0]
+        # Extract OS (Own Ship) information
+        os_position_math = [robot_state[0, 0], robot_state[1, 0]]
+        os_position = list(math_to_maritime_position(os_position_math[0], os_position_math[1]))
+        os_heading_math = np.degrees(robot_state[2, 0])
+        os_heading = math_to_ned_heading(os_heading_math)
+        os_speed = np.linalg.norm([robot_state[3, 0], robot_state[4, 0]])
+        os_velocity = heading_speed_to_velocity(os_heading, os_speed)
+
+        # Calculate navigation metrics
+        y_e = cross_track_error(self.start_position, self.goal_position, os_position)
+        dist_to_goal = distance(os_position, self.goal_position)
+        
+        # Extract TS (Target Ship) information - select TS with highest CR
+        CR_max = 0.0
+        selected_ts_idx = None
+        ts_position = [999.0, 999.0]
+        ts_velocity = [0.0, 0.0]
+        ts_speed = 0.0
+        ts_heading = 0.0
+        encounter_type = None
+        
+        if len(self.env.obstacle_list) > 0:
+            # Calculate CR for all obstacles and find the most dangerous one
+            for idx, obstacle in enumerate(self.env.obstacle_list):
+                if hasattr(obstacle, 'static') and obstacle.static:
+                    continue
+                
+                ts_state = obstacle.state
+                if ts_state.shape[0] < 5:
+                    continue
+                
+                temp_ts_position_math = [ts_state[0, 0], ts_state[1, 0]]
+                temp_ts_position = list(math_to_maritime_position(temp_ts_position_math[0], temp_ts_position_math[1]))
+                temp_ts_heading_math = np.degrees(ts_state[2, 0])
+                temp_ts_heading = math_to_ned_heading(temp_ts_heading_math)
+                temp_ts_speed = np.linalg.norm([ts_state[3, 0], ts_state[4, 0]])
+                temp_ts_velocity = heading_speed_to_velocity(temp_ts_heading, temp_ts_speed)
+                
+                # Calculate collision risk for this obstacle
+                cr_result = self.cr_calculator.calculate_collision_risk(
+                    os_position=os_position,
+                    os_velocity=os_velocity,
+                    os_heading=os_heading,
+                    ts_position=temp_ts_position,
+                    ts_velocity=temp_ts_velocity,
+                    ts_heading=temp_ts_heading
+                )
+                
+                if cr_result['cr'] > CR_max:
+                    CR_max = cr_result['cr']
+                    selected_ts_idx = idx
+                    ts_position = temp_ts_position
+                    ts_velocity = temp_ts_velocity
+                    ts_speed = temp_ts_speed
+                    ts_heading = temp_ts_heading
+        
+        # Determine encounter type for the most dangerous ship
+        if selected_ts_idx is not None:
+            situation = self.reward_calculator.encounter_classifier.classify(
+                os_position, os_heading, os_speed,
+                ts_position, ts_heading, ts_speed
+            )
+            encounter_type = situation.encounter_type
 
         # Get sensor data
         scan = self.env.get_lidar_scan()
         latest_scan = scan["ranges"]
         
-        # Calculate distance and angle to goal
-        goal_vector = [
-            self.robot_goal[0].item() - x,
-            self.robot_goal[1].item() - y,
-        ]
-        distance = np.linalg.norm(goal_vector)
-
-        # ⭐ Progress reward 계산
-        if self.prev_distance is not None:
-            progress = self.prev_distance - distance
-        else:
-            progress = 0.0
-
         goal = self.env.robot.arrive
-        pose_vector = [np.cos(psi), np.sin(psi)]
-        cos, sin = self.cossin(pose_vector, goal_vector)
         collision = self.env.robot.collision
-        action = [u_ref, r_ref]
-        reward = self.get_reward(goal, collision, action, latest_scan, progress)
-        self.prev_distance = distance
+        action_return = [u_ref, r_ref]
+        
+        # The selected TS is dynamic by definition of the loop above
+        is_static_obstacle = False
 
-        return latest_scan, distance, cos, sin, collision, goal, action, reward, robot_state
+        reward = self.get_reward(
+            goal=goal, 
+            collision=collision, 
+            dist_to_goal=dist_to_goal, 
+            y_e=y_e, 
+            os_speed=os_speed, 
+            os_position=os_position, 
+            os_velocity=os_velocity, 
+            os_heading=os_heading, 
+            ts_speed=ts_speed, 
+            ts_position=ts_position, 
+            ts_velocity=ts_velocity,
+            ts_heading=ts_heading,
+            CR_max=CR_max, 
+            encounter_type=encounter_type, 
+            is_static_obstacle=is_static_obstacle
+        )
+        
+        self.prev_heading = os_heading
+        self.prev_distance = dist_to_goal
+        
+        return latest_scan, dist_to_goal, y_e, collision, goal, action_return, reward, robot_state, CR_max
     
-    def reset(
-        self, 
-        robot_state=None, 
-        robot_goal=None, 
-        random_obstacles=False,
-        random_obstacle_ids=None
-    ):
+    def reset(self, robot_state=None, robot_goal=None, random_obstacles=False, random_obstacle_ids=None):
         """
-        Reset the simulation environment.
+        Reset simulation environment.
         
         Args:
-            robot_state (list or None): Initial state of the robot as a list of [x, y, theta, speed].
-            robot_goal (list or None): Goal state for the robot.
-            random_obstacles (bool): Whether to randomly reposition obstacles
-            random_obstacle_ids (list or None): Specific obstacle IDs to randomi     episode + 1
-        ) % episodes_per_epoch == 0:  # if epoch is concluded, run evaluation
-            episode = 0
-            epoch += 1
-            evaluate(model, epoch, sim, eval_episodes=nr_eval_episodes)
-ze
+            robot_state: Initial robot state [x, y, theta, ...]
+            robot_goal: Goal position [x, y, theta]
+            random_obstacles: Randomize obstacle positions if True
+            random_obstacle_ids: Specific obstacle IDs to randomize
             
         Returns:
-            (tuple): Initial observation after reset, including LIDAR scan, distance, cos/sin,
-                   and reward-related flags and values.
+            tuple: Initial observation (scan, distance, collision, goal, action, reward, robot_state)
         """
-        # If robot_state is provided, set it explicitly
         if robot_state is not None:
-            # Convert to numpy array if needed
             if isinstance(robot_state, list):
                 robot_state = np.array(robot_state)
-            # Set state manually (overrides YAML)
             self.env.robot.set_state(robot_state, init=True)
         
-        # if robot_state is None:
-        #     self.env.robot.state[0, 0] = 0.0
-        #     self.env.robot.state[1, 0] = -90 # initial position = (0, -40)m
-        #     self.env.robot.state[2, 0] = np.pi / 2 # heading angle = 90 degrees
-        #     self.env.robot.state[3, 0] = 0.0  # u
-        #     self.env.robot.state[4, 0] = 0.0  # v
-        #     self.env.robot.state[5, 0] = 0.0  # r
-        #     self.env.robot.state[6, 0] = 0.0  # n1
-        #     self.env.robot.state[7, 0] = 0.0  # n2
-        
-        # Randomize obstacles (only if Otter USV obstacles exist)
+        # Store start position after state is set
+        current_state = self.env.robot.state
+        start_pos_math = [current_state[0, 0], current_state[1, 0]]
+        self.start_position = list(math_to_maritime_position(start_pos_math[0], start_pos_math[1]))
+
         if random_obstacles and len(self.env.obstacle_list) > 0:
-            # Check if first obstacle is an Otter USV (8-DOF state)
             first_obs = self.env.obstacle_list[0]
             if hasattr(first_obs, 'state') and first_obs.state.shape[0] >= 8:
                 if random_obstacle_ids is None:
@@ -233,83 +286,66 @@ ze
                 )
 
         if robot_goal is None:
-            robot_goal = [0, 0, np.pi / 2]
+            robot_goal = [90, 0, np.pi / 2]
         self.env.robot.set_goal(np.array(robot_goal), init=True)
         self.env.reset()
         self.robot_goal = self.env.robot.goal
+        goal_pos_math = [self.robot_goal[0, 0], self.robot_goal[1, 0]]
+        self.goal_position = list(math_to_maritime_position(goal_pos_math[0], goal_pos_math[1]))
 
         self.prev_distance = None
+        self.prev_heading = None
         
-        # Phase 1: Reset step counter
         if self.enable_phase1:
             self.step_counter = 0
             self.current_action = np.array([[0.0], [0.0]])
         
         action = [0.0, 0.0]
-        latest_scan, distance, cos, sin, _, _, action, reward, robot_state = self.step(
+        latest_scan, dist_to_goal, y_e, _, _, action, reward, robot_state, CR_max = self.step(
             u_ref=action[0], r_ref=action[1]
         )
         
-        return latest_scan, distance, cos, sin, False, False, action, reward, robot_state
+        return latest_scan, dist_to_goal, y_e, False, False, action, reward, robot_state, CR_max
 
-    def get_reward(self, goal, collision, action, latest_scan, progress):
+    def get_reward(self, goal, collision, dist_to_goal, y_e, 
+                   os_speed, os_position, os_velocity, os_heading, 
+                   ts_speed, ts_position, ts_velocity, ts_heading,
+                   CR_max, encounter_type, is_static_obstacle):
         """
-        Calculate reward based on goal, collision, progress, and obstacles.
+        Calculate reward using Jeon's reward function.
         
-        Terminal rewards are computed as:
-        - Goal reward: max_steps * 10
-        - Collision penalty: max_steps * -10
+        Terminal rewards:
+        - Goal: max_steps
+        - Collision: max_steps 
         
-        Args:
-            goal (bool): Whether goal was reached
-            collision (bool): Whether collision occurred
-            action (list): Action taken [u_ref, r_ref]
-            latest_scan (list): LIDAR scan data
-            progress (float): Distance progress since last step
-            
-        Returns:
-            float: Reward value
+        Step rewards: Jeon's efficiency + safety components
         """
-        # Terminal rewards (computed from max_steps)
-        goal_reward = self.max_steps * 10.0
-        collision_penalty = self.max_steps * -10.0
-        
         if goal:
-            return goal_reward
+            return self.max_steps/2
         elif collision:
-            return collision_penalty
+            return -self.max_steps/2 
         
-        if self.max_steps == 300:
-            progress_reward = progress * 100.0  
-        elif self.max_steps == 1000:
-            progress_reward = progress * 300.0  # Was 100.0!
-        else:
-            progress_reward = progress * 50.0
-        
-        # 3. OBSTACLE PENALTY
-        min_distance = min(latest_scan)
-        if min_distance < 5.0:
-            if self.max_steps == 300:
-                obstacle_penalty = -(5.0 - min_distance) * 10.0
-            elif self.max_steps == 1000:
-                obstacle_penalty = -(5.0 - min_distance) * 30.0
-            else:
-                obstacle_penalty = -(5.0 - min_distance) * 5.0
-        else:
-            obstacle_penalty = 0.0
-        
-        # 5. STEP PENALTY 
-        if self.max_steps == 300:
-            step_penalty = -1.0  # Encourage faster completion
-        elif self.max_steps == 1000:
-            step_penalty = -3.0  # Encourage faster completion
-        else:
-            step_penalty = -1.0  # Encourage faster completion
-                
-        total_reward = (
-            progress_reward +       # +0.5~1.0 bonus
-            obstacle_penalty +      # -15 near obstacles
-            step_penalty            # -2 per step
+        reward_dict = self.reward_calculator.calculate_total_reward(
+            current_distance=dist_to_goal,
+            previous_distance=self.prev_distance,
+            cross_track_error=y_e,
+            os_speed=os_speed,
+            os_position=os_position,
+            os_velocity=os_velocity,
+            os_heading=os_heading,
+            previous_heading=self.prev_heading,
+            ts_speed=ts_speed,
+            ts_position=ts_position,
+            ts_velocity=ts_velocity,
+            ts_heading=ts_heading,
+            start_position=self.start_position,
+            CR_max=CR_max,
+            encounter_type=encounter_type,
+            goal_position=self.goal_position,
+            is_static_obstacle=is_static_obstacle,
+            w_efficiency=self.w_efficiency,
+            w_safety=self.w_safety
         )
         
-        return total_reward
+        # Extract total reward from dictionary
+        return reward_dict['r_total']

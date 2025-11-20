@@ -1,9 +1,0 @@
-{
-  "epoch": 6,
-  "avg_reward": 1286.8964920859564,
-  "goal_rate": 0.5,
-  "collision_rate": 0.0,
-  "action_std": 0.1,
-  "training_mode": "scratch",
-  "distance": "20m"
-}

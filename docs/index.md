@@ -1,56 +1,17 @@
-# Welcome to DRL-robot-navigation-IR-SIM
+# Welcome to DRL-Otter-Navigation
 
-**DRL Robot navigation in IR-SIM**
+This project implements a Deep Reinforcement Learning (DRL) framework to train an Otter Unmanned Surface Vehicle (USV) for autonomous, COLREGs-compliant navigation. The agent is trained using a curriculum learning approach, progressively mastering more complex multi-vessel encounter scenarios.
 
-Deep Reinforcement Learning algorithm implementation for simulated robot navigation in IR-SIM. Using 2D laser sensor data
-and information about the goal point a robot learns to navigate to a specified point in the environment.
+The framework integrates the `ir-sim` 2D simulator for LiDAR sensing and visualization with the `PythonVehicleSimulator` for realistic 6-DOF USV dynamics.
 
-**Installation**
+## Key Features
 
-* Package versioning is managed with poetry \
-`pip install poetry`
-* Clone the repository \
-`git clone https://github.com/reiniscimurs/DRL-robot-navigation.git`
-* Navigate to the cloned location and install using poetry \
-`poetry install`
+-   **Curriculum Learning:** A multi-phase training structure that starts with simple goal-reaching and progressively adds 1, 2, and 3 dynamic target ships.
+-   **PPO Agent:** Utilizes a Proximal Policy Optimization (PPO) agent, a state-of-the-art DRL algorithm.
+-   **CNN-based Perception:** A Convolutional Neural Network (CNN) processes 360-degree LiDAR data to extract key environmental features.
+-   **Domain Randomization:** At each training phase, the agent is exposed to a variety of randomized encounter scenarios (head-on, crossing, overtaking) to promote a robust and generalizable policy.
+-   **Modular Reward System:** Leverages the `colregs-core` library for sophisticated, customizable reward calculations based on maritime best practices.
 
-**Training the model**
+## Getting Started
 
-* Run the training by executing the train.py file \
-`poetry run python robot_nav/train.py`
-
-* To open tensorbord, in a new terminal execute \
-`tensorboard --logdir runs`
-
-
-
-**Sources**
-
-| Package |                          Description                          |                              Source | 
-|:--------|:-------------------------------------------------------------:|------------------------------------:| 
-| IR-SIM  |                 Light-weight robot simulator                  | https://github.com/hanruihua/ir-sim |
-| PythonRobotics  | Python code collection of robotics algorithms (Path planning) | https://github.com/AtsushiSakai/PythonRobotics |
-
-
-**Models**
-
-| Model     |                                           Description                                           |                    Model                           Source | 
-|:----------|:-----------------------------------------------------------------------------------------------:|----------------------------------------------------------:|
-| TD3       |                      Twin Delayed Deep Deterministic Policy Gradient model                      | https://github.com/reiniscimurs/DRL-Robot-Navigation-ROS2 | 
-| SAC       |                                     Soft Actor-Critic model                                     |                https://github.com/denisyarats/pytorch_sac | 
-| PPO       |                               Proximal Policy Optimization model                                |            https://github.com/nikhilbarhate99/PPO-PyTorch | 
-| DDPG      |                            Deep Deterministic Policy Gradient model                             |                                          Updated from TD3 | 
-| CNNTD3    |                          TD3 model with 1D CNN encoding of laser state                          |                                                         - |
-| RCPG      | Recurrent Convolution Policy Gradient - adding recurrence layers (lstm/gru/rnn) to CNNTD3 model |                                                         - |
-
-**Max Upper Bound Models**
-
-Models that support the additional loss of Q values exceeding the maximal possible Q value in the episode. Q values that exceed this upper bound are used to calculate a loss for the model. This helps to control the overestimation of Q values in off-policy actor-critic networks.
-To enable max upper bound loss set `use_max_bound = True` when initializing a model.
-
-| Model  |  
-|:-------|
-| TD3    | 
-| DDPG   | 
-| CNNTD3 |
-
+To get started, head over to the **[Installation](getting-started/installation.md)** guide.

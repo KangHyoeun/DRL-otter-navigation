@@ -13,7 +13,7 @@ robot:
     shape: {name: 'rectangle', length: 2.0, width: 1.08}  # Otter USV dimensions
     # behavior: {name: 'dash', reference_velocity: 3.0}
     state: [-90, 0, 0, 0, 0, 0, 0, 0]  # Own ship starts at (-90, 0)m heading North
-    goal: [0, 0, 0]  # Goal at (0, 90)m North
+    goal: [90, 0, 0]  # Goal at (90, 0)m North
     vel_min: [-10.0, -10.0]
     vel_max: [10.0, 10.0]
     arrive_mode: position
@@ -49,7 +49,7 @@ obstacle:
     arrive_mode: position
     goal_threshold: 4.0
 
-  - number: 2
+  - number: 1
     kinematics: {name: 'otter_usv'}
     behavior: {name: 'dash', reference_velocity: 2.898}
     vel_max: [10.0, 10.0]
@@ -61,7 +61,7 @@ obstacle:
     arrive_mode: position
     goal_threshold: 4.0
 
-  - number: 3
+  - number: 1
     kinematics: {name: 'otter_usv'}
     behavior: {name: 'dash', reference_velocity: 2.898}
     vel_max: [10.0, 10.0]
