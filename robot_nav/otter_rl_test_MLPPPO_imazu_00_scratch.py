@@ -1,6 +1,4 @@
-from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
-from robot_nav.models.SAC.CNNSAC import CNNSAC
-from robot_nav.models.PPO.CNNPPO import CNNPPO
+from robot_nav.models.PPO.MLPPPO import MLPPPO
 import statistics
 import numpy as np
 import tqdm
@@ -9,33 +7,35 @@ import matplotlib.pyplot as plt
 import torch
 from robot_nav.SIM_ENV.otter_sim import OtterSIM
 from pathlib import Path
+from colregs_core.utils.utils import ref_course_angle, WrapTo180
+from colregs_core.geometry import math_to_ned_heading
 
 
 def main(args=None):
     """Main testing function"""
-    action_dim = 2  # number of actions produced by the model
-    max_action = 1  # maximum absolute value of output actions
-    state_dim = 370  # number of input values in the neural network (vector length of state input)
+    action_dim = 2
+    max_action = 1
+    state_dim = 12
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
-    )  # using cuda if it is available, cpu otherwise
-    epoch = 0  # epoch number
-    max_steps = 2000  # maximum number of steps in single episode
+    )
+    epoch = 0
+    max_steps = 2000
     test_scenarios = 100
 
-    model = CNNPPO(
+    model = MLPPPO(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
         load_model=True,
-        model_name="otter_CNNPPO_imazu_01_scratch_BEST",
+        model_name="otter_MLPPPO_imazu_00_hardcoded",
         load_directory=Path("robot_nav/models/PPO/best_checkpoint"),
-    )  # instantiate a model
+    )
 
     sim = OtterSIM(
-        world_file="/worlds/imazu_scenario/imazu_case_01.yaml", disable_plotting=True, enable_phase1=True, max_steps=max_steps
-    )  # instantiate environment
+        world_file="robot_nav/worlds/imazu_scenario/imazu_case_00.yaml", disable_plotting=True, enable_phase1=True, max_steps=max_steps
+    )
 
     print("..............................................")
     print(f"Testing {test_scenarios} scenarios")
@@ -51,7 +51,7 @@ def main(args=None):
     for _ in tqdm.tqdm(range(test_scenarios)):
         count = 0
         ep_reward = 0
-        latest_scan, distance, collision, goal, a, reward, robot_state, CR_max = sim.reset(
+        latest_scan, distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.reset(
             robot_state=None,
             robot_goal=None,
             random_obstacles=False,
@@ -59,15 +59,22 @@ def main(args=None):
         )
         done = False
         while not done and count < max_steps:
+            # Calculate angle errors in degrees
+            os_heading_deg = math_to_ned_heading(np.degrees(robot_state[2, 0])) # Current heading in NED degrees
+            ref_angle_deg = ref_course_angle(sim.start_position, sim.goal_position) # Reference course angle in degrees
+
+            phi_tilde = WrapTo180(os_heading_deg - ref_angle_deg) # Heading error in degrees
+            psi_e = phi_tilde  # Using phi_tilde as placeholder for psi_e
+            chi_e = phi_tilde  # Using phi_tilde as placeholder for chi_e
+
             state, terminal = model.prepare_state(
-                latest_scan, distance, collision, goal, a, robot_state,
-                sim.start_position, [sim.robot_goal[0].item(), sim.robot_goal[1].item()], CR_max
+                distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, robot_state, CR_max
             )
-            action = model.get_action(np.array(state), False)
+            action, _, _ = model.get_action(np.array(state), False)
             a_in = [(action[0] + 1) * 1.5, action[1] * 0.1745]
             lin_actions.append(a_in[0])
             ang_actions.append(a_in[1])
-            latest_scan, distance, collision, goal, a, reward, robot_state, CR_max = sim.step(
+            latest_scan, distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.step(
                 u_ref=a_in[0], r_ref=a_in[1]
             )
             ep_reward += reward
@@ -82,8 +89,6 @@ def main(args=None):
             done = collision or goal
             if done:
                 reward_per_ep.append(ep_reward)
-            if not done:
-                inter_rew.append(reward)
         
         if not done and count >= max_steps:
             reward_per_ep.append(ep_reward)

@@ -15,8 +15,7 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from pathlib import Path
 from numpy import inf
-from colregs_core.utils.utils import cross_track_error, ref_course_angle, WrapTo180, WrapToPi
-from colregs_core.geometry import math_to_ned_heading, math_to_maritime_position
+from colregs_core.geometry import math_to_maritime_velocity
 
 
 class RolloutBuffer:
@@ -76,7 +75,8 @@ class CNNPPOActorCritic(nn.Module):
         
         # Action variance (diagonal covariance)
         self.action_var = torch.full(
-            (action_dim,), action_std_init * action_std_init
+            (action_dim,),
+            action_std_init * action_std_init
         ).to(self.device)
         
         # ========== Shared CNN Feature Extractor ==========
@@ -147,7 +147,8 @@ class CNNPPOActorCritic(nn.Module):
 
     def set_action_std(self, new_action_std):
         self.action_var = torch.full(
-            (self.action_dim,), new_action_std * new_action_std
+            (self.action_dim,),
+            new_action_std * new_action_std
         ).to(self.device)
 
     def forward(self):
@@ -275,7 +276,7 @@ class CNNPPO:
         action_std_init=0.6,
         action_std_decay_rate=0.015,
         min_action_std=0.1,
-        target_kl=0.02,  # NEW: Target KL for early stopping
+        target_kl=0.05,  # NEW: Target KL for early stopping
         device="cpu",
         save_every=10,
         load_model=False,
@@ -324,6 +325,8 @@ class CNNPPO:
 
         self.MseLoss = nn.MSELoss()
         self.writer = SummaryWriter(comment=model_name)
+        self.writer = SummaryWriter(comment=model_name)
+        self.state_log_counter = 0
         
         print(f"✅ CNNPPO Initialized with:")
         print(f"   - Actor LR: {lr_actor}")
@@ -447,10 +450,8 @@ class CNNPPO:
         if len(old_logprobs.shape) > 1:
             old_logprobs = torch.squeeze(old_logprobs)
         
-        # Calculate dataset size
         dataset_size = states.shape[0]
         
-        # Training metrics
         total_loss = 0
         total_actor_loss = 0
         total_critic_loss = 0
@@ -459,17 +460,13 @@ class CNNPPO:
         total_clip_frac = 0  # NEW
         num_updates = 0
         
-        # NEW: Multiple epochs with minibatch updates
         for epoch in range(iterations):
-            # Shuffle indices for minibatch sampling
             indices = torch.randperm(dataset_size)
             
-            # Process minibatches
             for start_idx in range(0, dataset_size, batch_size):
                 end_idx = min(start_idx + batch_size, dataset_size)
                 batch_indices = indices[start_idx:end_idx]
                 
-                # Sample minibatch
                 batch_states = states[batch_indices]
                 batch_actions = old_actions[batch_indices]
                 batch_old_logprobs = old_logprobs[batch_indices]
@@ -483,26 +480,17 @@ class CNNPPO:
                 
                 state_values = torch.squeeze(state_values)
                 
-                # Calculate ratio (π_θ / π_θ_old)
                 ratios = torch.exp(logprobs - batch_old_logprobs)
                 
-                # Surrogate losses
                 surr1 = ratios * batch_advantages
                 surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * batch_advantages
                 
-                # Actor loss (PPO clipped objective)
                 actor_loss = -torch.min(surr1, surr2)
-                
-                # Critic loss (value function)
                 critic_loss = 0.5 * self.MseLoss(state_values, batch_returns)
-                
-                # Entropy bonus
                 entropy_loss = -0.01 * dist_entropy
                 
-                # Total loss
                 loss = actor_loss + critic_loss + entropy_loss
 
-                # NEW: Calculate approximate KL divergence and clip fraction for logging
                 with torch.no_grad():
                     approx_kl = torch.mean((ratios - 1) - logprobs + batch_old_logprobs).item()
                     clip_frac = torch.mean((torch.abs(ratios - 1) > self.eps_clip).float()).item()
@@ -512,10 +500,8 @@ class CNNPPO:
                     print(f"⚠️  Early stopping PPO update at epoch {epoch+1} due to high KL divergence: {approx_kl:.4f}")
                     break
                 
-                # Gradient update
                 self.optimizer.zero_grad()
                 loss.mean().backward()
-                # Gradient clipping for stability (Sawada et al. 2020)
                 torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=5.0)
                 self.optimizer.step()
                 
@@ -528,23 +514,15 @@ class CNNPPO:
                 total_clip_frac += clip_frac
                 num_updates += 1
             
-            # NEW: Break outer loop if KL early stopping was triggered
             else:  # This 'else' belongs to the inner 'for' loop
                 continue
             break
         
-        # Copy new weights into old policy
         self.policy_old.load_state_dict(self.policy.state_dict())
-        
-        # Clear buffer
         self.buffer.clear()
-        
-        # Decay action std
         self.decay_action_std(self.action_std_decay_rate, self.min_action_std)
-        
         self.iter_count += 1
         
-        # Write to tensorboard
         avg_loss = total_loss / num_updates
         avg_actor_loss = total_actor_loss / num_updates
         avg_critic_loss = total_critic_loss / num_updates
@@ -557,12 +535,8 @@ class CNNPPO:
         self.writer.add_scalar("train/critic_loss", avg_critic_loss, self.iter_count)
         self.writer.add_scalar("train/entropy", avg_entropy, self.iter_count)
         self.writer.add_scalar("train/action_std", self.action_std, self.iter_count)
-        
-        # Log advantages statistics
         self.writer.add_scalar("train/advantages_mean", advantages.mean().item(), self.iter_count)
         self.writer.add_scalar("train/advantages_std", advantages.std().item(), self.iter_count)
-
-        # NEW: Log advanced PPO metrics
         self.writer.add_scalar("train/explained_variance", explained_var.item(), self.iter_count)
         self.writer.add_scalar("train/approx_kl", avg_approx_kl, self.iter_count)
         self.writer.add_scalar("train/clip_fraction", avg_clip_frac, self.iter_count)
@@ -573,84 +547,66 @@ class CNNPPO:
                   f"Actor: {avg_actor_loss:.4f} | Critic: {avg_critic_loss:.4f} | "
                   f"Entropy: {avg_entropy:.4f}")
 
-    def prepare_state(
-        self, 
-        latest_scan,      # LiDAR (360)
-        distance,         # 목적지 거리
-        y_e,              # Cross-track error
-        collision,        # 충돌 여부
-        goal,             # 목표 도달 여부 (boolean) - not used, kept for compatibility
-        action,           # 현재 명령 [u_ref, r_ref]
-        robot_state,      # 로봇 상태
-        start_position,   # 출발 위치 (for y_e)
-        goal_position,    # 목표 위치 [x, y] (for y_e calculation)
-        CR_max
-    ):
+    def prepare_state(self, distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max):
         """
-        State: [LiDAR(360) + u + r + u_e + r_e + distance + y_e + φ_tilde + n1 + n2 + CR_max]
+        Convert raw sensor and navigation data into a normalized state vector for the policy.
         """
-
-        latest_scan = np.array(latest_scan)
-        inf_mask = np.isinf(latest_scan)
-        latest_scan[inf_mask] = 100.0
-        latest_scan_norm = np.clip(latest_scan / 100.0, 0.0, 1.0)
+        # Velocities
+        psi_math_deg = np.degrees(robot_state[2, 0])
+        speed = np.linalg.norm([robot_state[3, 0], robot_state[4, 0]])
+        v_x, v_y = math_to_maritime_velocity(psi_math_deg, speed)
+        v_min, v_max = -3.0, 3.0
+        v_x_norm = normalize_state(v_x, v_min, v_max)
+        v_y_norm = normalize_state(v_y, v_min, v_max)
         
-        # Normalize distance
-        distance_min, distance_max = 0, 111.8
-        distance_norm = normalize_state(distance, distance_min, distance_max)
-        
-        # Normalize propellers
-        n_min, n_max = -101.7, 103.9
-        n1, n2 = robot_state[6, 0], robot_state[7, 0]
-        n1_norm = normalize_state(n1, n_min, n_max)
-        n2_norm = normalize_state(n2, n_min, n_max)
-        
-        # Normalize velocities
-        u_min, u_max = 0, 3.0
-        u_e_min, u_e_max = -3.0, 3.0
         u_ref, u_actual = action[0], robot_state[3, 0]
         u_e = u_ref - u_actual
-        u_actual_norm = normalize_state(u_actual, u_min, u_max)
-        u_e_norm = normalize_state(u_e, u_e_min, u_e_max)
+        u_e_norm = normalize_state(u_e, -3.0, 3.0)
         
-        r_min, r_max = -0.2862, 0.2862
-        r_e_min, r_e_max = -0.4607, 0.4607
         r_ref, r_actual = action[1], robot_state[5, 0]
         r_e = r_ref - r_actual
-        r_actual_norm = normalize_state(r_actual, r_min, r_max)
-        r_e_norm = normalize_state(r_e, r_e_min, r_e_max)
+        r_e_norm = normalize_state(r_e, -0.4363, 0.4363)  # 0.3617 = 15deg/s # 0.1 = 5.7deg/s # 0.1745 = 10deg/s
 
-        # Calculate y_e (cross-track error)
-        y_e_min, y_e_max = -50.0, 50.0
-        y_e_norm = normalize_state(y_e, y_e_min, y_e_max)
+        # Goal-related values
+        distance_norm = normalize_state(distance, 0, 196.5)
+        y_e_norm = normalize_state(y_e, -50.0, 50.0)
+        psi_e_norm = normalize_state(psi_e, -180.0, 180.0)
+        chi_e_norm = normalize_state(chi_e, -180.0, 180.0)
+        phi_tilde_norm = normalize_state(phi_tilde, -180.0, 180.0)
 
-        # Calculate φ_tilde (heading difference) in RADIANS
-        φ_tilde_min, φ_tilde_max = -np.pi, np.pi  # radians
-        os_heading_math = np.degrees(robot_state[2, 0])  # math heading in degrees
-        os_heading_deg = math_to_ned_heading(os_heading_math) # NED heading in degrees
-        os_heading = np.radians(os_heading_deg) # NED heading in radians
-
-        # Get reference angle (returns degrees, convert to radians)
-        ref_angle_deg = ref_course_angle(start_position, goal_position)  # Returns degrees
-        ref_angle = np.radians(ref_angle_deg)  # Convert to radians
+        # Propeller speeds
+        n1, n2 = robot_state[6, 0], robot_state[7, 0]
+        n1_norm = normalize_state(n1, -101.7, 103.9)
+        n2_norm = normalize_state(n2, -101.7, 103.9)
         
-        # Calculate difference in radians, wrap to [-π, π]
-        φ_tilde = WrapToPi(os_heading - ref_angle)  # radians
-        φ_tilde_norm = normalize_state(φ_tilde, φ_tilde_min, φ_tilde_max)
-        
-        # Concatenate: [LiDAR(360) + u + r + u_e + r_e + distance + y_e + φ_tilde + n1 + n2 + CR_max]
-        # 8. State 조합
-        state = np.concatenate([
-            latest_scan_norm.flatten(),
-            np.array([u_actual_norm, r_actual_norm, u_e_norm, r_e_norm]),
-            np.array([distance_norm, y_e_norm, φ_tilde_norm]),
-            np.array([n1_norm, n2_norm, CR_max])
-        ])
+        # CR_max
+        cr_max_norm = normalize_state(CR_max, 0.0, 1.0)
 
+        state = [v_x_norm, v_y_norm, distance_norm, y_e_norm, psi_e_norm, chi_e_norm, phi_tilde_norm, cr_max_norm, u_e_norm, r_e_norm, n1_norm, n2_norm]
+        
         assert len(state) == self.state_dim, f"State dim mismatch: {len(state)} vs {self.state_dim}"
         terminal = 1 if collision or goal else 0
 
-        return state.tolist(), terminal  # numpy → list for buffer storage
+        # Log normalized state values (prints every 100 calls to avoid excessive output)
+        # if self.log_state and self.state_log_counter % 100 == 0:
+        #     print(f"\n📊 Normalized State Vector (call #{self.state_log_counter}):")
+        #     print(f"   v_x_norm:      {v_x_norm:.4f} (raw: {v_x:.3f} m/s)")
+        #     print(f"   v_y_norm:      {v_y_norm:.4f} (raw: {v_y:.3f} m/s)")
+        #     print(f"   distance_norm: {distance_norm:.4f} (raw: {distance:.3f} m)")
+        #     print(f"   y_e_norm:      {y_e_norm:.4f} (raw: {y_e:.3f} m)")
+        #     print(f"   psi_e_norm:    {psi_e_norm:.4f} (raw: {psi_e:.2f}°)")
+        #     print(f"   chi_e_norm:    {chi_e_norm:.4f} (raw: {chi_e:.2f}°)")
+        #     print(f"   phi_tilde_norm: {phi_tilde_norm:.4f} (raw: {phi_tilde:.2f}°)")
+        #     print(f"   cr_max_norm:    {cr_max_norm:.4f} (raw: {CR_max:.4f})")
+        #     print(f"   u_e_norm:       {u_e_norm:.4f} (raw: {u_e:.3f} m/s)")
+        #     print(f"   r_e_norm:       {r_e_norm:.4f} (raw: {r_e:.4f} rad/s)")
+        #     print(f"   n1_norm:        {n1_norm:.4f} (raw: {n1:.2f} rpm)")
+        #     print(f"   n2_norm:        {n2_norm:.4f} (raw: {n2:.2f} rpm)")
+        #     print(f"   State vector:   {[f'{s:.4f}' for s in state]}")
+        # self.state_log_counter += 1
+
+        return state, terminal
+
 
     def save(self, filename, directory):
         Path(directory).mkdir(parents=True, exist_ok=True)
@@ -678,4 +634,10 @@ def normalize_state(x, min_val, max_val):
     """Normalize state value to [0, 1] range"""
     x = np.asarray(x, dtype=np.float32)
     denom = (max_val - min_val) if (max_val - min_val) != 0 else 1.0
-    return np.clip((x - min_val) / denom, 0.0, 1.0)
+    normalized = np.clip((x - min_val) / denom, 0.0, 1.0)
+    # Convert to Python float scalar to avoid array issues in state list
+    if normalized.ndim == 0:
+        return float(normalized.item())
+    else:
+        # If it's an array, take the first element (shouldn't happen for scalars)
+        return float(normalized.flat[0])

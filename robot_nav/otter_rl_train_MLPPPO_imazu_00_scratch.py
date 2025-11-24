@@ -1,9 +1,11 @@
-from robot_nav.models.PPO.CNNPPO import CNNPPO
+from robot_nav.models.PPO.MLPPPO import MLPPPO
 import torch
 import numpy as np
 import json
 from robot_nav.SIM_ENV.otter_sim import OtterSIM
 from pathlib import Path
+from colregs_core.utils.utils import calculate_ref_path, calculate_desired_course_angle, WrapTo180
+from colregs_core.geometry import math_to_ned_heading, math_to_maritime_position
 
 
 def main():
@@ -12,7 +14,7 @@ def main():
     # Hyperparameters
     action_dim = 2           
     max_action = 1
-    state_dim = 370  # 360 LiDAR + 2 velocity + 2 error + 3 goal (dist, y_e, φ_tilde) + 2 propeller + 1 CR_max
+    state_dim = 12  # 12-element state vector without LiDAR
     
     # Check CUDA availability
     cuda_available = torch.cuda.is_available()
@@ -36,16 +38,24 @@ def main():
     max_steps = 2000 
     steps = 0
     save_every = 5
-    load_model = False  # ⭐ SCRATCH 학습!
+    load_model = False  # ⭐ TRANSFER LEARNING FROM HARDCODED MODEL!
     
     # PPO specific parameters
     lr_actor = 0.0001
     lr_critic = 0.0003
     gamma = 0.995
     eps_clip = 0.2
-    action_std_init = 0.6  
-    action_std_decay_rate = 0.015  
+    action_std_init = 0.8  
+    action_std_decay_rate = 0.01  
     min_action_std = 0.1  # Minimum exploration
+
+    chi_inf = 1.0
+    k = 1.0
+    
+    # Model names
+    # This script will load the hardcoded model but save its own best model as "otter_MLPPPO_imazu_00_scratch_BEST"
+    model_to_load_for_transfer = "otter_CNNPPO_imazu_00_hardcoded"
+    model_name_for_save = "otter_MLPPPO_imazu_00_scratch"
     
     print("\n" + "=" * 60)
     print("🎯 CURRICULUM PHASE 1: GOAL REACHING (IMAZU CASE 00)")
@@ -53,11 +63,11 @@ def main():
     print("   Environment: Imazu Case 00 (No Obstacles)")
     print("   Start: (0, -90)")
     print("   Goal: (0, 90)")
-    print("   Load model: NO (learning from scratch)")
+    print(f"   Load model: YES (for Transfer Learning from '{model_to_load_for_transfer}')")
     print("   Max steps: 2000")
     print("=" * 60)
     
-    model = CNNPPO(
+    model = MLPPPO(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
@@ -70,21 +80,31 @@ def main():
         min_action_std=min_action_std,
         device=device,
         save_every=save_every,
-        load_model=load_model,
+        load_model=False, # We manually load here
         save_directory=Path("robot_nav/models/PPO/checkpoint"),
-        model_name="otter_CNNPPO_imazu_00_scratch",  # ⭐ 새로운 모델 이름
+        model_name=model_name_for_save,
         load_directory=Path("robot_nav/models/PPO/best_checkpoint"),
     )
+    
+    if load_model:
+        print(f"\n🔄 Loading pre-trained model for transfer learning: {model_to_load_for_transfer}")
+        try:
+            model.load(filename=model_to_load_for_transfer, directory=Path("robot_nav/models/PPO/best_checkpoint"))
+            print("   ✅ Model loaded successfully for transfer learning.")
+        except FileNotFoundError:
+            print(f"   ❌ ERROR: Hardcoded model file not found at 'robot_nav/models/PPO/best_checkpoint/{model_to_load_for_transfer}_policy.pth'.")
+            print("   Please ensure the hardcoded model was created correctly by running 'create_hardcoded_model.py'.")
+            return
     
     # Initialize simulation
     print("\n🔧 Performance Settings:")
     print("   - Plotting: DISABLED (faster simulation)")
     print("   - Phase 1: ENABLED (action frequency control)")
-    print("   - Max steps: 1000")
-    print("\n🎯 CNNPPO Configuration:")
-    print(f"   - CNN Feature Extraction: ENABLED ✅")
-    print(f"   - LiDAR: 360 → 36 features (via CNN)")
-    print(f"   - Total features: 76 (36 CNN + 40 embeddings)")
+    print("   - Max steps: 2000")
+    print("\n🎯 MLPPPO Configuration:")
+    print(f"   - MLP Feature Extraction: ENABLED ✅")
+    print(f"   - LiDAR: DISABLED ❌")
+    print(f"   - Total states: {state_dim}")
     print(f"   - Action std init: {action_std_init}")
     print(f"   - Action std decay: {action_std_decay_rate}")
     print(f"   - Min action std: {min_action_std}")
@@ -96,14 +116,14 @@ def main():
         disable_plotting=True,
         enable_phase1=True,
         max_steps=max_steps,
-        cr_method='chun',
+        cr_method='jeon',
         w_efficiency=1.0,
-        w_safety=0.0,
-        os_speed_for_cr=2.0, # Reference speed
+        w_safety=0.1,
+        os_speed_for_cr=3.0, # Reference speed
         ts_speed_for_cr=0.0  # No target ships in phase 1
     )
 
-    latest_scan, distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.step(
+    distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.step(
         u_ref=0.0, r_ref=0.0
     )
 
@@ -114,7 +134,7 @@ def main():
     # Best model tracking
     best_reward = -float('inf')
     best_goal_rate = 0.0
-    patience = 10  # 더 긴 patience (90m은 더 어려울 수 있음)
+    patience = 100000  # 더 긴 patience (90m은 더 어려울 수 있음)
     epochs_without_improvement = 0
 
     print("\n🎯 BEST MODEL CHECKPOINT ENABLED!")
@@ -126,9 +146,22 @@ def main():
     episode_count_since_last_train = 0
     
     while epoch < max_epochs:
+        os_position = list(math_to_maritime_position(robot_state[0, 0], robot_state[1, 0]))  # Current position in NED 
+        os_heading = math_to_ned_heading(np.degrees(robot_state[2, 0])) # Current heading in NED degrees
+        os_speed = np.linalg.norm([robot_state[3, 0], robot_state[4, 0]])  # Scalar
+        # Side slip angle: beta = arcsin(v / V), where v is lateral velocity and V is total speed
+        os_beta = np.degrees(np.arcsin(robot_state[4, 0] / (os_speed + 1e-8))) if os_speed > 1e-8 else 0.0  # side slip angle, degrees, Body Frame 
+        os_course = WrapTo180(os_heading + os_beta)                     # course angle, degrees, Inertial Frame
+
+        ref_path = calculate_ref_path(os_position, sim.goal_position)  # degrees
+        desired_course_angle = calculate_desired_course_angle(os_position, sim.start_position, sim.goal_position, chi_inf, k)  # degrees
+        chi_e = WrapTo180(desired_course_angle - os_course)
+        desired_heading_angle = WrapTo180(desired_course_angle - os_beta)
+        psi_e = WrapTo180(desired_heading_angle - os_heading)
+        phi_tilde = WrapTo180(ref_path - os_course)
+
         state, terminal = model.prepare_state(
-            latest_scan, distance, y_e, collision, goal, a, robot_state,
-            sim.start_position, sim.goal_position, CR_max
+            distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, robot_state, CR_max
         )
         # PPO: Sample from stochastic policy during training
         action, log_prob, state_val = model.get_action(state, add_noise=True)
@@ -136,17 +169,46 @@ def main():
         # Clip action to environment limits
         a_in = [
             (action[0] + 1) * 1.5,   # [0, 3.0] m/s
-            action[1] * 0.1745,      # [-10, 10] deg/s
+            action[1] * 0.1,      # [-5.729, 5.729] deg/s
         ]
 
-        latest_scan, distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.step(
+        distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.step(
             u_ref=a_in[0], r_ref=a_in[1]
         )
         
+        # Recalculate navigation angles for next_state (robot_state has changed after step)
+        os_position_next = list(math_to_maritime_position(robot_state[0, 0], robot_state[1, 0]))
+        os_heading_next = math_to_ned_heading(np.degrees(robot_state[2, 0]))
+        os_speed_next = np.linalg.norm([robot_state[3, 0], robot_state[4, 0]])
+        os_beta_next = np.degrees(np.arcsin(robot_state[4, 0] / (os_speed_next + 1e-8))) if os_speed_next > 1e-8 else 0.0
+        os_course_next = WrapTo180(os_heading_next + os_beta_next)
+        
+        ref_path_next = calculate_ref_path(os_position_next, sim.goal_position)
+        desired_course_angle_next = calculate_desired_course_angle(os_position_next, sim.start_position, sim.goal_position, chi_inf, k)
+        chi_e_next = WrapTo180(desired_course_angle_next - os_course_next)
+        desired_heading_angle_next = WrapTo180(desired_course_angle_next - os_beta_next)
+        psi_e_next = WrapTo180(desired_heading_angle_next - os_heading_next)
+        phi_tilde_next = WrapTo180(ref_path_next - os_course_next)
+
         next_state, terminal = model.prepare_state(
-            latest_scan, distance, y_e, collision, goal, a, robot_state,
-            sim.start_position, sim.goal_position, CR_max
+            distance, y_e, psi_e_next, chi_e_next, phi_tilde_next, collision, goal, a, robot_state, CR_max
         )
+        
+        # Log state variables (print every 100 steps to avoid excessive output)
+        # if steps % 100 == 0:
+        #     print(f"\n📊 Step {steps} | Episode {episode + 1} | Epoch {epoch}")
+        #     print(f"   distance:    {distance:.3f} m")
+        #     print(f"   y_e:         {y_e:.3f} m")
+        #     print(f"   psi_e:       {psi_e_next:.2f}°")
+        #     print(f"   chi_e:       {chi_e_next:.2f}°")
+        #     print(f"   phi_tilde:   {phi_tilde_next:.2f}°")
+        #     print(f"   collision:   {collision}")
+        #     print(f"   goal:         {goal}")
+        #     print(f"   action:       [{a[0]:.3f}, {a[1]:.5f}]")
+        #     print(f"   CR_max:       {CR_max:.4f}")
+        #     print(f"   robot_state:  pos=[{robot_state[1,0]:.2f}, {robot_state[0,0]:.2f}], "
+        #           f"heading={os_heading_next:.2f}°, "
+        #           f"vel=[{robot_state[3,0]:.2f}, {robot_state[4,0]:.2f}]")
         
         # Add to rollout buffer
         model.buffer.add(
@@ -157,7 +219,7 @@ def main():
             episode_time = time.time() - episode_start_time
             print(f"📊 Episode {episode + 1} completed in {episode_time:.2f}s ({steps} steps)")
             
-            latest_scan, distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.reset()
+            distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.reset()
             episode += 1
             episode_count_since_last_train += 1
             episode_start_time = time.time()
@@ -178,7 +240,7 @@ def main():
 
         if episode % episodes_per_epoch == 0 and episode > 0:
             epoch += 1
-            avg_reward, avg_goal, avg_col = evaluate(model, epoch, sim, eval_episodes=nr_eval_episodes, max_steps=max_steps)
+            avg_reward, avg_goal, avg_col = evaluate(model, epoch, sim, eval_episodes=nr_eval_episodes, max_steps=max_steps, chi_inf=chi_inf, k=k)
             
             # Save best model
             if avg_reward > best_reward:
@@ -196,7 +258,7 @@ def main():
                 epochs_without_improvement = 0
                 
                 best_dir = Path("robot_nav/models/PPO/best_checkpoint")
-                model.save(filename="otter_CNNPPO_imazu_00_scratch_BEST", directory=best_dir)
+                model.save(filename="otter_MLPPPO_imazu_00_scratch_BEST", directory=best_dir)
                 
                 metrics = {
                     "epoch": epoch,
@@ -207,7 +269,7 @@ def main():
                     "training_mode": "scratch_phase1",
                     "distance": "90m"
                 }
-                with open(best_dir / "best_metrics_imazu_00_scratch.json", 'w') as f:
+                with open(best_dir / "best_metrics_imazu_00_MLPPPO_scratch.json", 'w') as f:
                     json.dump(metrics, f, indent=2)
                     
             else:
@@ -229,7 +291,7 @@ def main():
             steps = 0
             episode_count_since_last_train = 0
             episode_start_time = time.time()
-            latest_scan, distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.reset()
+            distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.reset()
     
     # Final summary
     print("\n" + "=" * 60)
@@ -237,12 +299,14 @@ def main():
     print(f"   Best reward achieved:  {best_reward:.1f}")
     print(f"   Best goal rate:        {best_goal_rate * 100:.1f}%")
     print(f"   Best model saved to:   robot_nav/models/PPO/best_checkpoint/")
-    print(f"   Model name:            otter_CNNPPO_imazu_00_scratch_BEST")
+    print(f"   Model name:            otter_MLPPPO_imazu_00_scratch_BEST")
     print("=" * 60)
 
 
-def evaluate(model, epoch, sim, eval_episodes=10, max_steps=2000):
+def evaluate(model, epoch, sim, eval_episodes=10, max_steps=2000, chi_inf=1.0, k=1.0):
     """Evaluate model performance"""
+    import matplotlib.pyplot as plt
+    
     print("..............................................")
     print(f"Epoch {epoch}. Evaluating scenarios")
     avg_reward = 0.0
@@ -251,20 +315,33 @@ def evaluate(model, epoch, sim, eval_episodes=10, max_steps=2000):
     
     for _ in range(eval_episodes):
         count = 0
-        latest_scan, distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.reset()
+        distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.reset()
         done = False
         
         while not done and count < max_steps + 1:
+            os_position = list(math_to_maritime_position(robot_state[0, 0], robot_state[1, 0]))  # Current position in NED 
+            os_heading = math_to_ned_heading(np.degrees(robot_state[2, 0])) # Current heading in NED degrees
+            os_speed = np.linalg.norm([robot_state[3, 0], robot_state[4, 0]])  # Scalar
+            # Side slip angle: beta = arcsin(v / V), where v is lateral velocity and V is total speed
+            os_beta = np.degrees(np.arcsin(robot_state[4, 0] / (os_speed + 1e-8))) if os_speed > 1e-8 else 0.0  # side slip angle, degrees, Body Frame 
+            os_course = WrapTo180(os_heading + os_beta)                     # course angle, degrees, Inertial Frame
+
+            ref_path = calculate_ref_path(os_position, sim.goal_position)  # degrees
+            desired_course_angle = calculate_desired_course_angle(os_position, sim.start_position, sim.goal_position, chi_inf, k)  # degrees
+            chi_e = WrapTo180(desired_course_angle - os_course)
+            desired_heading_angle = WrapTo180(desired_course_angle - os_beta)
+            psi_e = WrapTo180(desired_heading_angle - os_heading)
+            phi_tilde = WrapTo180(ref_path - os_course)
+
             state, terminal = model.prepare_state(
-                latest_scan, distance, y_e, collision, goal, a, robot_state,
-                sim.start_position, sim.goal_position, CR_max
+                distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, robot_state, CR_max
             )
             
             # NO noise during evaluation (use mean action)
             action, _, _ = model.get_action(state, add_noise=False)
-            a_in = [(action[0] + 1) * 1.5, action[1] * 0.1745]
+            a_in = [(action[0] + 1) * 1.5, action[1] * 0.1]
             
-            latest_scan, distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.step(
+            distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.step(
                 u_ref=a_in[0], r_ref=a_in[1]
             )
             
@@ -289,6 +366,9 @@ def evaluate(model, epoch, sim, eval_episodes=10, max_steps=2000):
     model.writer.add_scalar("eval/avg_reward", avg_reward, epoch)
     model.writer.add_scalar("eval/avg_col", avg_col, epoch)
     model.writer.add_scalar("eval/avg_goal", avg_goal, epoch)
+    
+    # Clean up matplotlib figures to prevent memory leak
+    plt.close('all')
     
     return avg_reward, avg_goal, avg_col
 

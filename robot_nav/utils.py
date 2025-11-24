@@ -253,3 +253,38 @@ def get_max_bound(
         -1, 1
     )
     return max_bound
+
+
+class RunningMeanStd:
+    """
+    Calibrates the mean and standard deviation of data over time.
+    Used for normalizing observations and rewards.
+    """
+    def __init__(self, shape=(), epsilon=1e-4):
+        self.mean = np.zeros(shape, dtype=np.float64)
+        self.var = np.ones(shape, dtype=np.float64)
+        self.count = epsilon
+        self.epsilon = epsilon
+
+    def update(self, x):
+        batch_mean = np.mean(x, axis=0)
+        batch_var = np.var(x, axis=0)
+        batch_count = x.shape[0]
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean, batch_var, batch_count):
+        delta = batch_mean - self.mean
+        tot_count = self.count + batch_count
+
+        new_mean = self.mean + delta * batch_count / tot_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + np.square(delta) * self.count * batch_count / tot_count
+        new_var = M2 / tot_count
+        new_count = tot_count
+
+        self.mean = new_mean
+        self.var = new_var
+        self.count = new_count
+
+import numpy as np

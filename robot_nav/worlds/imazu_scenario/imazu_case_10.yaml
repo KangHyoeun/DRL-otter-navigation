@@ -14,22 +14,22 @@ robot:
     # behavior: {name: 'dash', reference_velocity: 3.0}
     state: [-90, 0, 0, 0, 0, 0, 0, 0]  # Own ship starts at (-90, 0)m heading North
     goal: [90, 0, 0]  # Goal at (90, 0)m North
-    vel_min: [-10.0, -10.0]
-    vel_max: [10.0, 10.0]
+    vel_min: [-3.0, -3.0]
+    vel_max: [3.0, 3.0]
     arrive_mode: position
-    goal_threshold: 4.0
+    goal_threshold: 10.0
 
-    sensors:
-      - type: 'lidar2d'
-        range_min: 0
-        range_max: 100
-        angle_range: 6.2832  # 360 degrees
-        number: 360
-        noise: True
-        std: 0.08
-        angle_std: 0.1
-        offset: [0, 0, 3.14159]
-        alpha: 0.3
+    # sensors:
+    #   - type: 'lidar2d'
+    #     range_min: 0
+    #     range_max: 100
+    #     angle_range: 6.2832  # 360 degrees
+    #     number: 360
+    #     noise: True
+    #     std: 0.08
+    #     angle_std: 0.1
+    #     offset: [0, 0, 3.14159]
+    #     alpha: 0.3
 
     plot:
       show_arrow: true
@@ -40,26 +40,26 @@ obstacle:
   - number: 1
     kinematics: {name: 'otter_usv'}
     behavior: {name: 'dash', reference_velocity: 3.0}
-    vel_max: [10.0, 10.0]
-    vel_min: [-10.0, -10.0]
+    vel_max: [3.0, 3.0]
+    vel_min: [-3.0, -3.0]
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [0.000, 90.000, -1.5708, 0, 0, 0, 0, 0]
     goal: [-0.000, -90.000, -1.5708]
     arrive_mode: position
-    goal_threshold: 4.0
+    goal_threshold: 10.0
 
   - number: 1
     kinematics: {name: 'otter_usv'}
     behavior: {name: 'dash', reference_velocity: 2.898}
-    vel_max: [10.0, 10.0]
-    vel_min: [-10.0, -10.0]
+    vel_max: [3.0, 3.0]
+    vel_min: [-3.0, -3.0]
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [-86.940, -23.295, 0.2618, 0, 0, 0, 0, 0]
     goal: [86.940, 23.295, 0.2618]
     arrive_mode: position
-    goal_threshold: 4.0
+    goal_threshold: 10.0
 
   
   # World boundary

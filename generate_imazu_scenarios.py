@@ -150,22 +150,22 @@ robot:
     # behavior: {{name: 'dash', reference_velocity: 3.0}}
     state: [-90, 0, 0, 0, 0, 0, 0, 0]  # Own ship starts at (-90, 0)m heading North
     goal: [90, 0, 0]  # Goal at (90, 0)m North
-    vel_min: [-10.0, -10.0]
-    vel_max: [10.0, 10.0]
+    vel_min: [-3.0, -3.0]
+    vel_max: [3.0, 3.0]
     arrive_mode: position
-    goal_threshold: 4.0
+    goal_threshold: 10.0
 
-    sensors:
-      - type: 'lidar2d'
-        range_min: 0
-        range_max: 100
-        angle_range: 6.2832  # 360 degrees
-        number: 360
-        noise: True
-        std: 0.08
-        angle_std: 0.1
-        offset: [0, 0, 3.14159]
-        alpha: 0.3
+    # sensors:
+    #   - type: 'lidar2d'
+    #     range_min: 0
+    #     range_max: 100
+    #     angle_range: 6.2832  # 360 degrees
+    #     number: 360
+    #     noise: True
+    #     std: 0.08
+    #     angle_std: 0.1
+    #     offset: [0, 0, 3.14159]
+    #     alpha: 0.3
 
     plot:
       show_arrow: true
@@ -201,14 +201,14 @@ def generate_obstacle_yaml(target_ships):
         obstacle_yaml = f"""  - number: 1
     kinematics: {{name: 'otter_usv'}}
     behavior: {{name: 'dash', reference_velocity: {ship["u"]}}}
-    vel_max: [10.0, 10.0]
-    vel_min: [-10.0, -10.0]
+    vel_max: [3.0, 3.0]
+    vel_min: [-3.0, -3.0]
     shape:
       - {{name: 'rectangle', length: 2.0, width: 1.08}}
     state: [{x_m:.3f}, {y_m:.3f}, {psi_rad:.4f}, 0, 0, 0, 0, 0]
     goal: [{goal_x:.3f}, {goal_y:.3f}, {psi_rad:.4f}]
     arrive_mode: position
-    goal_threshold: 4.0
+    goal_threshold: 10.0
 """
         obstacles.append(obstacle_yaml)
     
