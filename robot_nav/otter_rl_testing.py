@@ -1,139 +1,153 @@
-from robot_nav.models.CNNTD3.CNNTD3 import CNNTD3
 import torch
 import numpy as np
-from robot_nav.SIM_ENV.otter_sim import OtterSIM
-from utils import get_buffer
+import tqdm
+import matplotlib.pyplot as plt
+import statistics
+import random
+from pathlib import Path
 
+from robot_nav.models.PPO.MLPCNNPPO import MLPCNNPPO
+from robot_nav.SIM_ENV.otter_sim import OtterSIM
+from colregs_core.utils.utils import WrapTo180
+from colregs_core.geometry import math_to_ned_heading
 
 def main():
-    """Test function for Otter USV with Episode 1 special behavior"""
-
-    # Hyperparameters
-    action_dim = 2           
-    max_action = 1
-    state_dim = 369             
-    # Check CUDA availability
-    cuda_available = torch.cuda.is_available()
-    device = torch.device("cuda" if cuda_available else "cpu")
-    print(f"🚀 CUDA available: {cuda_available}")
-    if cuda_available:
-        print(f"   GPU: {torch.cuda.get_device_name(0)}")
-        print(f"   Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
-    else:
-        print("   Using CPU (slower training)")
-    max_epochs = 1  # Only run 1 epoch
-    epoch = 0
-    episodes_per_epoch = 10  # Only run 10 episodes
-    episode = 0
-    train_every_n = 2           # Train every n episodes
-    training_iterations = 80   # Batches per training cycle
-    batch_size = 128
-    max_steps = 500             # Max steps per episode
-    steps = 0
-    load_saved_buffer = False
-    pretrain = False
-    pretraining_iterations = 10
-    save_every = 5
+    """Test function for Otter USV Imazu Case Collision Avoidance - PHASE 2"""
     
-    # Initialize model
-    model = CNNTD3(
+    # Phase 2 Worlds
+    phase2_worlds = [
+        "robot_nav/worlds/imazu_scenario/imazu_case_01.yaml",
+        "robot_nav/worlds/imazu_scenario/imazu_case_02.yaml",
+        "robot_nav/worlds/imazu_scenario/imazu_case_03.yaml",
+        "robot_nav/worlds/imazu_scenario/imazu_case_04.yaml"
+    ]
+
+    action_dim = 2
+    max_action = 1
+    state_dim = 12
+    
+    # Check CUDA
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"🚀 Device: {device}")
+
+    # Test parameters
+    max_steps = 512  # Frame Skip adjusted
+    test_episodes = 20 # Number of episodes to test
+    
+    # Model to load
+    model_name = "otter_MLPCNNPPO_imazu_01_phase2_BEST"
+    
+    print("\n" + "=" * 60)
+    print("🧪 TESTING PHASE 2: COLLISION AVOIDANCE (1 Target Ship)")
+    print("=" * 60)
+    print(f"   Model: {model_name}")
+    print(f"   Worlds: {len(phase2_worlds)} scenarios")
+    print(f"   Max Steps: {max_steps}")
+    print("=" * 60)
+
+    # Initialize Model
+    model = MLPCNNPPO(
         state_dim=state_dim,
         action_dim=action_dim,
         max_action=max_action,
         device=device,
-        save_every=save_every,
-        load_model=False,
-        model_name="otter_CNNTD3_imazu_scenario",
-    )
-    
-    # Initialize simulation with performance optimizations
-    print("🔧 Performance Settings:")
-    print("   - Plotting: ENABLED (for testing)")
-    print("   - Phase 1: ENABLED (action frequency control)")
-    print("   - Max steps: 1000 (longer episodes)")
-    print("   - Episode 1: SPECIAL BEHAVIOR (straight to goal)")
-    sim = OtterSIM(world_file="/worlds/imazu_scenario/s1.yaml", disable_plotting=True, enable_phase1=True)
-    
-    # Initialize replay buffer
-    replay_buffer = get_buffer(
-        model,
-        sim,
-        load_saved_buffer,
-        pretrain,
-        pretraining_iterations,
-        training_iterations,
-        batch_size,
+        load_model=True,
+        model_name=model_name,
+        load_directory=Path("robot_nav/models/PPO/best_checkpoint"),
     )
 
-    latest_scan, distance, cos, sin, collision, goal, a, reward, robot_state = sim.step(
-        u_ref=0.0, r_ref=0.0
-    )  # get the initial step state
-    
-    # Performance monitoring
-    import time
-    episode_start_time = time.time()
-    
-    while epoch < max_epochs:
-        state, terminal = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, robot_state
-        )  # get state a state representation from returned data from the environment
-        
-        # Episodes 2+: Normal DRL action
-        action = model.get_action(np.array(state), True)  # get an action from the model
-        a_in = [
-            (action[0] + 1) * 1.5,
-            action[1] * 0.1745,
-        ]  
-        latest_scan, distance, cos, sin, collision, goal, a, reward, robot_state = sim.step(
-            u_ref=a_in[0], r_ref=a_in[1]
-        )  # get data from the environment
-        
-        # Log robot state and actions for each timestep
-        robot_state = sim.env.robot.state
-        print(f"Step {steps}: State=[{robot_state[0,0]:.2f}, {robot_state[1,0]:.2f}, {robot_state[2,0]:.2f}, "
-              f"{robot_state[3,0]:.2f}, {robot_state[4,0]:.2f}, {robot_state[5,0]:.2f}, "
-              f"{robot_state[6,0]:.2f}, {robot_state[7,0]:.2f}] "
-              f"Actions=[{a_in[0]:.2f}, {a_in[1]:.2f}]")
-        
-        next_state, terminal = model.prepare_state(
-            latest_scan, distance, cos, sin, collision, goal, a, robot_state
-        )  # get a next state representation
-        replay_buffer.add(
-            state, action, reward, terminal, next_state
-        )  # add experience to the replay buffer
+    # Initialize Simulation (Plotting Enabled)
+    # Note: We initialize with one world, but will reset with random worlds
+    sim = OtterSIM(
+        world_file=phase2_worlds[0],
+        disable_plotting=False, # Enable visualization for testing
+        enable_phase1=True, 
+        max_steps=max_steps,
+        cr_method='jeon', 
+        w_efficiency=1.0, 
+        w_safety=3.0,
+        os_speed_for_cr=3.0, 
+        ts_speed_for_cr=3.0,
+        chi_inf=1.0, 
+        k=1.0
+    )
 
-        if (
-            terminal or steps == max_steps
-        ):  # reset environment of terminal stat ereached, or max_steps were taken
-            # Performance monitoring
-            episode_time = time.time() - episode_start_time
-            print(f"📊 Episode {episode + 1} completed in {episode_time:.2f}s ({steps} steps)")
+    # Metrics storage
+    total_rewards = []
+    steps_per_episode = []
+    goal_counts = 0
+    collision_counts = 0
+    
+    for ep in range(test_episodes):
+        selected_world = random.choice(phase2_worlds)
+        print(f"\n▶️  Episode {ep+1}/{test_episodes} | World: {Path(selected_world).name}")
+        
+        distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, reward, robot_state, CR_max, cr_grid = sim.reset(world_file=selected_world)
+        
+        ep_reward = 0
+        step_count = 0
+        done = False
+        
+        # Progress bar for steps within an episode
+        pbar = tqdm.tqdm(total=max_steps, desc=f"   Running", leave=False)
+        
+        while not done and step_count < max_steps:
+            # Prepare state
+            state, terminal = model.prepare_state(
+                distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, robot_state, CR_max, grid_map=cr_grid
+            )
             
-            latest_scan, distance, cos, sin, collision, goal, a, reward, robot_state = sim.reset()
-            episode += 1
-            episode_start_time = time.time()  # Reset timer for next episode
-            if episode % train_every_n == 0:
-                model.train(
-                    replay_buffer=replay_buffer,
-                    iterations=training_iterations,
-                    batch_size=batch_size,
-                    max_lin_vel=3.0,
-                    max_ang_vel=0.1745,
-                    goal_reward=3000,
-                    distance_norm=20,
-                    time_step=0.1,
-                )  # train the model and update its parameters
+            # Get deterministic action (no noise)
+            action, _, _ = model.get_action(state, add_noise=False, update_rms=False)
+            
+            # Scale action
+            a_in = [
+                (action[0] + 1) * 1.5,   # [0, 3.0] m/s
+                action[1] * 0.1745,      # ±10 deg/s
+            ]
+            
+            # Step simulation
+            distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, reward, robot_state, CR_max, cr_grid = sim.step(
+                u_ref=a_in[0], r_ref=a_in[1]
+            )
+            
+            ep_reward += reward
+            step_count += 1
+            pbar.update(1)
+            
+            if collision:
+                print(f"   💥 COLLISION! at step {step_count}")
+                collision_counts += 1
+                done = True
+            elif goal:
+                print(f"   🏁 GOAL REACHED! at step {step_count}")
+                goal_counts += 1
+                done = True
+                
+        pbar.close()
+        
+        total_rewards.append(ep_reward)
+        steps_per_episode.append(step_count)
+        print(f"   Reward: {ep_reward:.2f} | Steps: {step_count}")
 
-            steps = 0
-        else:
-            steps += 1
+    # Final Statistics
+    avg_reward = statistics.mean(total_rewards) if total_rewards else 0
+    avg_steps = statistics.mean(steps_per_episode) if steps_per_episode else 0
+    success_rate = (goal_counts / test_episodes) * 100
+    collision_rate = (collision_counts / test_episodes) * 100
 
-        if (
-            episode + 1
-        ) % episodes_per_epoch == 0:  # if epoch is concluded
-            episode = 0
-            epoch += 1
-
+    print("\n" + "=" * 60)
+    print("📊 TEST RESULTS SUMMARY")
+    print("=" * 60)
+    print(f"   Total Episodes: {test_episodes}")
+    print(f"   Success Rate:   {success_rate:.1f}%")
+    print(f"   Collision Rate: {collision_rate:.1f}%")
+    print(f"   Avg Reward:     {avg_reward:.2f}")
+    print(f"   Avg Steps:      {avg_steps:.1f}")
+    print("=" * 60)
+    
+    # Keep plots open if needed
+    # plt.show()
 
 if __name__ == "__main__":
     main()

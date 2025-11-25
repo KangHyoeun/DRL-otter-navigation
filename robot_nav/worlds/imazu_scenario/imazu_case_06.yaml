@@ -39,7 +39,7 @@ robot:
 obstacle:
   - number: 1
     kinematics: {name: 'otter_usv'}
-    behavior: {name: 'dash', reference_velocity: 2.954}
+    behavior: {name: 'dash', reference_velocity: 3.0}
     vel_max: [3.0, 3.0]
     vel_min: [-3.0, -3.0]
     shape:
@@ -51,7 +51,7 @@ obstacle:
 
   - number: 1
     kinematics: {name: 'otter_usv'}
-    behavior: {name: 'dash', reference_velocity: 2.121}
+    behavior: {name: 'dash', reference_velocity: 3.0}
     vel_max: [3.0, 3.0]
     vel_min: [-3.0, -3.0]
     shape:

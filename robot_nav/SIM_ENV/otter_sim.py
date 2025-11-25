@@ -19,13 +19,13 @@ class OtterSIM(SIM_ENV):
     """
     
     def __init__(self, world_file="robot_nav/worlds/imazu_scenario/imazu_case_01.yaml", 
-                 disable_plotting=True, enable_phase1=True, max_steps=1000,
+                 disable_plotting=True, enable_phase1=True, max_steps=512,
                  cr_method='jeon', w_efficiency=1.0, w_safety=1.0,
                  os_speed_for_cr: float = 3.0, ts_speed_for_cr: float = 3.0,
                  r_ref_deadzone: float = 0.01,
-                 grid_forward: int = 96, grid_lateral: int = 64,
-                 obs_distance_forward: float = 150.0, obs_distance_lateral: float = 100.0,
-                 chi_inf=1.0, k=1.0):
+                 grid_forward: int = 128, grid_lateral: int = 128,
+                 obs_distance_forward: float = 200.0, obs_distance_lateral: float = 200.0,
+                 chi_inf=0.5, k=1.0):
         """
         Initialize Otter USV simulation environment.
         """
@@ -33,6 +33,7 @@ class OtterSIM(SIM_ENV):
         self.env = irsim.make(
             world_file, disable_all_plot=disable_plotting, display=display
         )
+        self.current_world_file = world_file # Track current world file
         
         if len(self.env.robot_list) == 0:
             raise ValueError(
@@ -81,9 +82,9 @@ class OtterSIM(SIM_ENV):
         self.initial_goal_from_yaml = self.robot_info.goal.copy()
         
         self.ship_domain = ShipDomainParams(
-            r_bow=6.0,
+            r_bow=10.0,
             r_stern=2.0,
-            r_starboard=6.0,
+            r_starboard=10.0,
             r_port=2.0
         )
         
@@ -103,8 +104,8 @@ class OtterSIM(SIM_ENV):
             raise ValueError(f"Unknown CR method: {cr_method}. Use 'jeon' or 'chun'.")
         
         self.reward_calculator = JeonRewardCalculator(
-            d_max=10.0,
-            v_ref=3.0,
+            d_max=25.0,
+            v_ref=2.9,
             cr_allowable=0.3,
             dt=self.dt,
             ship_domain=self.ship_domain,
@@ -135,20 +136,28 @@ class OtterSIM(SIM_ENV):
             print("=" * 60)
         
         self.reward_log_counter = 0 # Initialize reward log counter
+        self.episode_step_count = 0 # Initialize episode step counter
             
     def step(self, u_ref=3.0, r_ref=0.0):
         if abs(r_ref) < self.r_ref_deadzone:
             r_ref = 0.0
         
         if self.enable_phase1:
-            if self.step_counter % self.steps_per_action == 0:
-                self.current_action = np.array([[u_ref], [r_ref]])
-            action = self.current_action
-            self.step_counter += 1
+            # Frame Skip Implementation: Run physics loop multiple times for one action
+            # This replaces the old "wait for counter" logic with a proper internal loop
+            accumulated_reward = 0.0
+            
+            for _ in range(self.steps_per_action):
+                self.env.step(action_id=0, action=np.array([[u_ref], [r_ref]]))
+                self.episode_step_count += 1
+                
+                # Check for terminal conditions inside the loop
+                if self.env.robot.arrive or self.env.robot.collision:
+                    break
         else:
-            action = np.array([[u_ref], [r_ref]])
-        
-        self.env.step(action_id=0, action=action)
+            # No frame skip (1:1 mapping)
+            self.env.step(action_id=0, action=np.array([[u_ref], [r_ref]]))
+            self.episode_step_count += 1
         
         robot_state = self.env.robot.state
         
@@ -232,10 +241,32 @@ class OtterSIM(SIM_ENV):
             ts_speed, ts_position, ts_velocity, ts_heading, CR_max, encounter_type, is_static_obstacle, cr_grid
         )
         
+        # Render if enabled
+        if not self.env.disable_all_plot:
+            self.env.render(interval=0.001)
+
         return distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action_return, reward, robot_state, CR_max, cr_grid
     
-    def reset(self, robot_state=None, robot_goal=None, random_obstacles=False, random_obstacle_ids=None):
+    def reset(self, robot_state=None, robot_goal=None, random_obstacles=False, random_obstacle_ids=None, world_file=None):
+        # Reload environment if world_file is provided and different
+        if world_file is not None and world_file != self.current_world_file:
+            plt.close('all') # Close previous plots to prevent accumulation
+            display = self.env.display
+            disable_plotting = self.env.disable_all_plot
+            self.env = irsim.make(world_file, disable_all_plot=disable_plotting, display=display)
+            self.current_world_file = world_file
+            self.robot_info = self.env.get_robot_info(0)
+            # Update initial states from new yaml
+            self.initial_robot_state_from_yaml = self.env.robot.state.copy()
+            self.initial_goal_from_yaml = self.robot_info.goal.copy()
+            print(f"🔄 Environment reloaded: {world_file}")
+
+        # Reset environment first
+        self.env.reset()
+
+        # Force reset robot state to initial state
         if robot_state is None:
+            # Debug: Check if initial state is corrupted
             self.env.robot.set_state(self.initial_robot_state_from_yaml, init=True)
         else:
             if isinstance(robot_state, list): robot_state = np.array(robot_state)
@@ -259,7 +290,7 @@ class OtterSIM(SIM_ENV):
             if isinstance(robot_goal, list): robot_goal = np.array(robot_goal)
             self.env.robot.set_goal(robot_goal, init=True)
 
-        self.env.reset()
+        # self.env.reset() # Moved to beginning
         self.robot_goal = self.env.robot.goal
         goal_pos_math = [self.robot_goal[0, 0], self.robot_goal[1, 0]]
         self.goal_position = list(math_to_maritime_position(goal_pos_math[0], goal_pos_math[1]))
@@ -271,9 +302,8 @@ class OtterSIM(SIM_ENV):
         if self.enable_phase1:
             self.step_counter = 0
             self.current_action = np.array([[0.0], [0.0]])
-        
-        plt.close('all') # Close all matplotlib figures on reset
 
+        self.episode_step_count = 0 # Reset episode step counter
         action = [3.0, 0.0]
         return self.step(u_ref=action[0], r_ref=action[1])
 
@@ -293,39 +323,45 @@ class OtterSIM(SIM_ENV):
             is_static_obstacle=is_static_obstacle,
             w_efficiency=self.w_efficiency, w_safety=self.w_safety
         )
+
         
-        # Terminal rewards are handled first, so log only if not terminal
+        # Terminal rewards
         if goal:
-            total_reward = self.max_steps * 2
-            if self.reward_log_counter % 100 == 0:
-                print(f"\n🏆 Reward Log (step #{self.reward_log_counter}): GOAL REACHED! Total: {total_reward:.2f}")
-            self.reward_log_counter += 1
-            return total_reward
+            # Goal 도달 보상: +20.0 (스케일링 후)
+            # 빨리 도착할수록 Step 페널티가 적게 쌓이므로 자연스럽게 보상이 커짐
+            total_reward = 2000.0 
+            print(f"\n🏆 Reward Log (Global Step #{self.reward_log_counter}): GOAL! Steps: {self.episode_step_count}, Reward: {total_reward*0.01:.2f}")
+            return total_reward * 0.01
+
         elif collision:
-            total_reward = -self.max_steps * 2
-            if self.reward_log_counter % 100 == 0:
-                print(f"\n💥 Reward Log (step #{self.reward_log_counter}): COLLISION! Total: {total_reward:.2f}")
-            self.reward_log_counter += 1
-            return total_reward
+            # 충돌 페널티: -20.0 (스케일링 후)
+            total_reward = -2500.0
+            print(f"\n💥 Reward Log (Global Step #{self.reward_log_counter}): COLLISION! Reward: {total_reward*0.01:.2f}")
+            return total_reward * 0.01
         
-        total_reward = reward_dict['r_total']
+        # 일반 스텝 보상:
+        # r_total 범위 -2 ~ +2 가정
+        total_reward = (reward_dict['r_total'] * 2.5) - 5.0
 
         # if self.reward_log_counter % 100 == 0:
         #     print(f"\n💰 Reward Log (step #{self.reward_log_counter}):")
-        #     print(f"   Total Reward: {total_reward:.4f}")
+        #     print(f"   Total Reward: {total_reward*0.01:.4f}")
         #     print(f"   CR_max: {CR_max:.4f}, Distance: {distance:.2f}, CTE (y_e): {y_e:.2f}, OS_Speed: {os_speed:.2f}")
         #     for key, val in reward_dict.items():
         #         if key != 'r_total':
         #             print(f"   - {key}: {val:.4f}")
-        # self.reward_log_counter += 1
+        self.reward_log_counter += 1
         
-        return total_reward
+        # 보상 스케일링 적용
+        return total_reward * 0.01
     
     def _create_cr_grid(self, os_position, os_heading, os_speed):
         """
-        Optimized CR grid creation.
+        Optimized CR grid creation with enhanced obstacle representation.
         """
         grid = np.zeros((self.grid_forward, self.grid_lateral), dtype=np.float32)
+        # 기본 배경값 설정 (약간의 noise로 CNN 학습 돕기)
+        grid += 0.01  # 모든 셀에 미세한 배경값
         os_velocity = heading_speed_to_velocity(os_heading, os_speed)
         
         # Pre-calculate common values
@@ -375,7 +411,8 @@ class OtterSIM(SIM_ENV):
             grid_x_center = center_x + (body_right / self.cell_size_lateral)
             
             # Fast Vectorized Assignment
-            self._assign_cr_to_grid_vectorized(grid, grid_x_center, grid_y_center, cr_value, cells_lateral, cells_forward)
+            enhanced_cr = max(cr_value, 0.1)  # 최소 0.1 보장
+            self._assign_cr_to_grid_vectorized(grid, grid_x_center, grid_y_center, enhanced_cr, cells_lateral, cells_forward)  
         
         return grid
     

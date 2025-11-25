@@ -174,6 +174,9 @@ class MLPPPO:
         gae_lambda=0.95,
         eps_clip=0.2,
         log_std_init=0.0, # log(1.0) = 0.0 -> Initial std = 1.0
+        ent_coef_init=0.01,
+        ent_coef_decay_rate=0.0,
+        min_ent_coef=0.001,
         target_kl=0.05,
         device="cpu",
         save_every=10,
@@ -187,6 +190,9 @@ class MLPPPO:
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.eps_clip = eps_clip
+        self.ent_coef = ent_coef_init
+        self.ent_coef_decay_rate = ent_coef_decay_rate
+        self.min_ent_coef = min_ent_coef
         self.target_kl = target_kl
         self.device = device
         self.save_every = save_every
@@ -222,6 +228,15 @@ class MLPPPO:
         self.state_log_counter = 0
         
         print(f"✅ MLPPPO (SB3 Style) Initialized")
+        print(f"   - Ent Coef: {self.ent_coef} (Decay: {self.ent_coef_decay_rate}, Min: {self.min_ent_coef})")
+
+    def decay_ent_coef(self):
+        """
+        Decay entropy coefficient linearly.
+        """
+        self.ent_coef = self.ent_coef - self.ent_coef_decay_rate
+        if self.ent_coef <= self.min_ent_coef:
+            self.ent_coef = self.min_ent_coef
 
     def normalize_obs(self, obs):
         """
@@ -368,7 +383,8 @@ class MLPPPO:
                 v_loss2 = self.MseLoss(values_clipped, batch_returns)
                 critic_loss = 0.5 * torch.max(v_loss1, v_loss2) # Max because we want to minimize the worst case? No, typical impl takes max of squared errors
                 
-                entropy_loss = -0.01 * dist_entropy.mean()
+                # Use dynamic entropy coefficient
+                entropy_loss = -self.ent_coef * dist_entropy.mean()
                 
                 loss = actor_loss + critic_loss + entropy_loss
 
@@ -396,6 +412,10 @@ class MLPPPO:
         
         self.policy_old.load_state_dict(self.policy.state_dict())
         self.buffer.clear()
+        
+        # Decay entropy coefficient
+        self.decay_ent_coef()
+        
         self.iter_count += 1
         
         # Log metrics
@@ -404,10 +424,11 @@ class MLPPPO:
         
         self.writer.add_scalar("train/total_loss", avg_loss, self.iter_count)
         self.writer.add_scalar("train/action_std", current_std, self.iter_count)
+        self.writer.add_scalar("train/ent_coef", self.ent_coef, self.iter_count) # Log ent_coef
         self.writer.add_scalar("train/explained_variance", explained_var.item(), self.iter_count)
         
         if self.iter_count % 10 == 0:
-            print(f"Iter {self.iter_count} | Loss: {avg_loss:.4f} | Std: {current_std:.4f} | ExpVar: {explained_var.item():.4f}")
+            print(f"Iter {self.iter_count} | Loss: {avg_loss:.4f} | Std: {current_std:.4f} | EntCoef: {self.ent_coef:.4f} | ExpVar: {explained_var.item():.4f}")
 
     def prepare_state(self, distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max):
         """
@@ -472,7 +493,8 @@ class MLPPPO:
                 'model_state_dict': self.policy_old.state_dict(),
                 'obs_rms_mean': self.obs_rms.mean,
                 'obs_rms_var': self.obs_rms.var,
-                'obs_rms_count': self.obs_rms.count
+                'obs_rms_count': self.obs_rms.count,
+                'ent_coef': self.ent_coef # Save ent_coef
             }, 
             "%s/%s_policy.pth" % (directory, filename)
         )
@@ -492,6 +514,9 @@ class MLPPPO:
             self.obs_rms.mean = checkpoint['obs_rms_mean']
             self.obs_rms.var = checkpoint['obs_rms_var']
             self.obs_rms.count = checkpoint['obs_rms_count']
+            if 'ent_coef' in checkpoint:
+                self.ent_coef = checkpoint['ent_coef']
+                print(f"Loaded ent_coef: {self.ent_coef}")
             print(f"Loaded weights and RMS stats from: {directory}")
         else:
             self.policy_old.load_state_dict(checkpoint)

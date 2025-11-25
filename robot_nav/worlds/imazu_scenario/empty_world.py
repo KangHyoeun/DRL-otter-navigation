@@ -1,6 +1,6 @@
 import irsim
 
-env = irsim.make('imazu_case_01.yaml')
+env = irsim.make('imazu_case_03.yaml')
 for i in range(2000):
 
     env.step()

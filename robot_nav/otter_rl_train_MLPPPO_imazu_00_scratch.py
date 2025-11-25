@@ -28,27 +28,29 @@ def main():
     
     # Training parameters
     nr_eval_episodes = 10
-    max_epochs = 100
-    epoch = 0
-    episodes_per_epoch = 10
-    episode = 0
-    train_every_n_episodes = 5  # PPO는 여러 episode 모은 후 학습
-    training_iterations = 10  # PPO epoch per update
-    batch_size = 256           # Minibatch size for PPO training
-    max_steps = 2000 
-    steps = 0
-    save_every = 5
-    load_model = False  # ⭐ TRANSFER LEARNING FROM HARDCODED MODEL!
+    max_epochs = 1000
+    episodes_per_epoch = 40
+    train_every_n_episodes = 10
+    training_iterations = 40
+    
+    # OPTIMIZED HYPERPARAMETERS
+    batch_size = 2048 # Increased for stability with CNN
+    max_steps = 2048  # Simulation max steps
+
+    save_every = 10
+    load_model = False
     
     # PPO specific parameters
-    lr_actor = 0.0001
+    lr_actor = 0.0001 # Reduced for stability
     lr_critic = 0.0003
-    gamma = 0.995
+    gamma = 0.99      # Adjusted
     eps_clip = 0.2
-    action_std_init = 0.8  
-    action_std_decay_rate = 0.01  
-    min_action_std = 0.1  # Minimum exploration
-
+    log_std_init = -0.5
+    ent_coef_init = 0.01
+    ent_coef_decay_rate = 0.0
+    min_ent_coef = 0.001
+    target_kl = 0.5  # Reset to standard value (Warmup will handle RMS stability)
+    
     chi_inf = 1.0
     k = 1.0
     
@@ -75,12 +77,14 @@ def main():
         lr_critic=lr_critic,
         gamma=gamma,
         eps_clip=eps_clip,
-        action_std_init=action_std_init,
-        action_std_decay_rate=action_std_decay_rate,
-        min_action_std=min_action_std,
+        log_std_init=log_std_init,
+        ent_coef_init=ent_coef_init,
+        ent_coef_decay_rate=ent_coef_decay_rate,
+        min_ent_coef=min_ent_coef,
+        target_kl=target_kl,
         device=device,
         save_every=save_every,
-        load_model=False, # We manually load here
+        load_model=load_model,
         save_directory=Path("robot_nav/models/PPO/checkpoint"),
         model_name=model_name_for_save,
         load_directory=Path("robot_nav/models/PPO/best_checkpoint"),
@@ -105,15 +109,12 @@ def main():
     print(f"   - MLP Feature Extraction: ENABLED ✅")
     print(f"   - LiDAR: DISABLED ❌")
     print(f"   - Total states: {state_dim}")
-    print(f"   - Action std init: {action_std_init}")
-    print(f"   - Action std decay: {action_std_decay_rate}")
-    print(f"   - Min action std: {min_action_std}")
     print(f"   - Clip epsilon: {eps_clip}")
     print(f"   - Train every {train_every_n_episodes} episodes")
     
     sim = OtterSIM(
         world_file="robot_nav/worlds/imazu_scenario/imazu_case_00.yaml",
-        disable_plotting=True,
+        disable_plotting=False,
         enable_phase1=True,
         max_steps=max_steps,
         cr_method='jeon',
@@ -172,7 +173,7 @@ def main():
             action[1] * 0.1,      # [-5.729, 5.729] deg/s
         ]
 
-        distance, y_e, collision, goal, a, reward, robot_state, CR_max = sim.step(
+        distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, reward, robot_state, CR_max, cr_grid = sim.step(
             u_ref=a_in[0], r_ref=a_in[1]
         )
         

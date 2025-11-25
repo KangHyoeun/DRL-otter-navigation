@@ -136,3 +136,91 @@ def to_np(t):
         return np.array([])
     else:
         return t.cpu().detach().numpy()
+
+
+class RunningMeanStd:
+    """
+    Calibrates the mean and standard deviation of data over time.
+    Used for normalizing observations.
+    """
+    def __init__(self, shape=(), epsilon=1e-4):
+        self.mean = np.zeros(shape, dtype=np.float64)
+        self.var = np.ones(shape, dtype=np.float64)
+        self.count = epsilon
+        self.epsilon = epsilon
+
+    def update(self, x):
+        batch_mean = np.mean(x, axis=0)
+        batch_var = np.var(x, axis=0)
+        batch_count = x.shape[0]
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean, batch_var, batch_count):
+        delta = batch_mean - self.mean
+        tot_count = self.count + batch_count
+
+        new_mean = self.mean + delta * batch_count / tot_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + np.square(delta) * self.count * batch_count / tot_count
+        new_var = M2 / tot_count
+        new_count = tot_count
+
+        self.mean = new_mean
+        self.var = new_var
+        self.count = new_count
+
+
+class MultiModalReplayBuffer:
+    """
+    Replay buffer for Multi-Modal inputs (Vector + Grid).
+    Stores transitions and samples random batches.
+    """
+    def __init__(self, capacity, seed=None):
+        self.capacity = capacity
+        self.buffer = []
+        self.position = 0
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
+
+    def add(self, state, action, reward, next_state, done):
+        """
+        state: tuple (vec, grid)
+        next_state: tuple (vec, grid)
+        """
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        
+        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample_batch(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        
+        # Unzip the batch
+        # state: (vec, grid)
+        states, actions, rewards, next_states, dones = zip(*batch)
+        
+        # Separate Vector and Grid
+        vec_states = np.array([s[0] for s in states])
+        grid_states = np.array([s[1] for s in states])
+        
+        vec_next_states = np.array([s[0] for s in next_states])
+        grid_next_states = np.array([s[1] for s in next_states])
+        
+        actions = np.array(actions)
+        rewards = np.array(rewards).reshape(-1, 1)
+        dones = np.array(dones).reshape(-1, 1)
+        
+        # Return structured data
+        return (
+            vec_states, grid_states, 
+            actions, 
+            rewards, 
+            vec_next_states, grid_next_states, 
+            dones
+        )
+
+    def __len__(self):
+        return len(self.buffer)

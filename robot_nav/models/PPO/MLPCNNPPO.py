@@ -64,16 +64,16 @@ class RolloutBuffer:
 
 class MLPCNNPPOActorCritic(nn.Module):
     """
-    Multi-Modal Actor-Critic Network.
+    Multi-Modal Actor-Critic Network with Semantic Vector Splitting.
     
     Inputs:
-        - Vector: (Batch, 12)
+        - Vector: (Batch, 12) -> Split into [vel(2), goal(3), error(4), rps(2), cr(1)]
         - Grid:   (Batch, 1, 128, 128)
     
     Architecture:
-        - MLP Branch: Linear(12 -> 64)
+        - Split MLPs: Process each semantic group separately
         - CNN Branch: Nature-CNN style (128x128 input)
-        - Fusion: Concat -> Linear(512) -> Heads
+        - Fusion: Concat all features -> Shared FC -> Heads
     """
 
     def __init__(self, vec_dim, action_dim, log_std_init, max_action, device):
@@ -87,7 +87,6 @@ class MLPCNNPPOActorCritic(nn.Module):
         self.log_std = nn.Parameter(torch.ones(action_dim) * log_std_init)
         
         # ========== CNN Branch (for 128x128 Grid) ==========
-        # Nature CNN architecture adapted for 128x128
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=8, stride=4), # 128->31
             nn.ReLU(),
@@ -95,19 +94,32 @@ class MLPCNNPPOActorCritic(nn.Module):
             nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1), # 14->12
             nn.ReLU(),
-            nn.Flatten()
+            nn.Flatten(),
+            nn.Linear(64 * 12 * 12, 512), # Reduce CNN output to 512
+            nn.ReLU()
         )
-        # Output dim: 64 * 12 * 12 = 9216
+        # Output dim: 512 (after reduction)
         
-        # ========== MLP Branch (for 12-dim Vector) ==========
-        self.mlp = nn.Sequential(
-            nn.Linear(vec_dim, 64),
-            nn.Tanh()
-        )
+        # ========== Split MLP Branches ==========
+        # State Vector: [v_x, v_y, distance, y_e, psi_e, chi_e, phi_tilde, CR_max, u_e, r_e, n1, n2]
+        # Groups:
+        # 1. Vel (2): v_x, v_y
+        # 2. Goal (3): distance, y_e, phi_tilde (indices: 2, 3, 6)
+        # 3. Error (4): psi_e, chi_e, u_e, r_e (indices: 4, 5, 8, 9)
+        # 4. RPS (2): n1, n2 (indices: 10, 11)
+        # 5. CR (1): CR_max (index: 7)
+        
+        self.vel_mlp = nn.Sequential(nn.Linear(2, 16), nn.Tanh())
+        self.goal_mlp = nn.Sequential(nn.Linear(3, 32), nn.Tanh())
+        self.error_mlp = nn.Sequential(nn.Linear(4, 32), nn.Tanh())
+        self.rps_mlp = nn.Sequential(nn.Linear(2, 16), nn.Tanh())
+        self.cr_mlp = nn.Sequential(nn.Linear(1, 8), nn.Tanh())
+        
+        # Total MLP Output Dim: 16 + 32 + 32 + 16 + 8 = 104
         
         # ========== Fusion & Heads ==========
-        # Combined dim: 9216 (CNN) + 64 (MLP) = 9280
-        self.fusion_dim = 9216 + 64
+        # Combined dim: 512 (CNN reduced) + 104 (MLP) = 616
+        self.fusion_dim = 512 + 104
         
         self.shared_fc = nn.Sequential(
             nn.Linear(self.fusion_dim, 512),
@@ -122,7 +134,7 @@ class MLPCNNPPOActorCritic(nn.Module):
         
         # ========== Initialization ==========
         self.apply(lambda m: init_weights(m, gain=np.sqrt(2)))
-        init_weights(self.actor, gain=0.01)
+        init_weights(self.actor, gain=0.5) # Increased gain from 0.01 to 0.5 to encourage initial exploration
         init_weights(self.critic, gain=1.0)
 
     def forward(self):
@@ -131,21 +143,39 @@ class MLPCNNPPOActorCritic(nn.Module):
     def _extract_features(self, vec, grid):
         """
         Extract and fuse features from both branches.
+        Vec: [v_x, v_y, distance, y_e, psi_e, chi_e, phi_tilde, CR_max, u_e, r_e, n1, n2]
+        Indices: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
         """
         # Process Grid
-        if grid.dim() == 3: # (C, H, W) -> (1, C, H, W)
-            grid = grid.unsqueeze(0)
-        elif grid.dim() == 4: # (B, C, H, W)
-            pass
+        if grid.dim() == 3: grid = grid.unsqueeze(0)
             
         # Process Vector
-        if vec.dim() == 1:
-            vec = vec.unsqueeze(0)
+        if vec.dim() == 1: vec = vec.unsqueeze(0)
             
-        cnn_out = self.cnn(grid)
-        mlp_out = self.mlp(vec)
+        # Split Vector Features
+        # Vel: [0, 1]
+        vel_in = vec[:, 0:2]
+        # Goal: [2, 3, 6] (dist, y_e, phi_tilde)
+        goal_in = torch.cat([vec[:, 2:4], vec[:, 6:7]], dim=1)
+        # Error: [4, 5, 8, 9] (psi_e, chi_e, u_e, r_e)
+        error_in = torch.cat([vec[:, 4:6], vec[:, 8:10]], dim=1)
+        # RPS: [10, 11]
+        rps_in = vec[:, 10:12]
+        # CR: [7]
+        cr_in = vec[:, 7:8]
         
-        combined = torch.cat([cnn_out, mlp_out], dim=1)
+        # Pass through MLPs
+        vel_out = self.vel_mlp(vel_in)
+        goal_out = self.goal_mlp(goal_in)
+        error_out = self.error_mlp(error_in)
+        rps_out = self.rps_mlp(rps_in)
+        cr_out = self.cr_mlp(cr_in)
+        
+        # CNN Branch
+        cnn_out = self.cnn(grid)
+        
+        # Fusion
+        combined = torch.cat([cnn_out, vel_out, goal_out, error_out, rps_out, cr_out], dim=1)
         return self.shared_fc(combined)
 
     def act(self, vec, grid, sample=True):
@@ -216,6 +246,9 @@ class MLPCNNPPO:
         gae_lambda=0.95,
         eps_clip=0.2,
         log_std_init=0.0,
+        ent_coef_init=0.01,
+        ent_coef_decay_rate=0.0,
+        min_ent_coef=0.001,
         target_kl=5.0,
         device="cpu",
         save_every=10,
@@ -229,6 +262,9 @@ class MLPCNNPPO:
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.eps_clip = eps_clip
+        self.ent_coef = ent_coef_init
+        self.ent_coef_decay_rate = ent_coef_decay_rate
+        self.min_ent_coef = min_ent_coef
         self.target_kl = target_kl
         self.device = device
         self.save_every = save_every
@@ -248,9 +284,15 @@ class MLPCNNPPO:
             state_dim, action_dim, log_std_init, self.max_action, self.device
         ).to(device)
         
-        self.optimizer = torch.optim.Adam(
-            self.policy.parameters(), lr=lr_actor, eps=1e-5
-        )
+        # Separate parameters for Actor (including shared) and Critic head
+        critic_head_params = list(self.policy.critic.parameters())
+        critic_head_ids = list(map(id, critic_head_params))
+        base_params = [p for p in self.policy.parameters() if id(p) not in critic_head_ids]
+        
+        self.optimizer = torch.optim.Adam([
+            {'params': base_params, 'lr': lr_actor},
+            {'params': critic_head_params, 'lr': lr_critic}
+        ], eps=1e-5)
 
         self.policy_old = MLPCNNPPOActorCritic(
             state_dim, action_dim, log_std_init, self.max_action, self.device
@@ -261,12 +303,27 @@ class MLPCNNPPO:
             self.load(filename=model_name, directory=load_directory)
 
         self.MseLoss = nn.MSELoss()
+        # Ensure runs directory exists for TensorBoard
+        runs_dir = Path("runs")
+        runs_dir.mkdir(parents=True, exist_ok=True)
         self.writer = SummaryWriter(comment=model_name)
         self.state_log_counter = 0
         
         print(f"✅ MLPCNNPPO (Vector+Grid) Initialized")
+        print(f"   - Ent Coef: {self.ent_coef} (Decay: {self.ent_coef_decay_rate}, Min: {self.min_ent_coef})")
 
-    def get_action(self, state, add_noise=True):
+    def decay_ent_coef(self):
+        """
+        Decay entropy coefficient linearly.
+        """
+        self.ent_coef = self.ent_coef - self.ent_coef_decay_rate
+        if self.ent_coef <= self.min_ent_coef:
+            self.ent_coef = self.min_ent_coef
+        
+        # Log to tensorboard
+        # self.writer.add_scalar("train/ent_coef", self.ent_coef, self.iter_count)
+
+    def get_action(self, state, add_noise=True, update_rms=True):
         """
         Expects state to be a tuple: (vector_state, grid_map)
         """
@@ -275,16 +332,21 @@ class MLPCNNPPO:
         with torch.no_grad():
             # 1. Normalize Vector State
             vec_np = np.array(vec_raw, dtype=np.float32)
-            self.obs_rms.update(vec_np.reshape(1, -1))
+            if update_rms:
+                self.obs_rms.update(vec_np.reshape(1, -1))
             vec_norm = (vec_np - self.obs_rms.mean) / np.sqrt(self.obs_rms.var + 1e-8)
             vec_tensor = torch.FloatTensor(vec_norm).to(self.device)
             
-            # 2. Process Grid State (Assuming input is 0-255 or 0-1)
-            # If 0-255, divide by 255. If 0-1, keep as is. 
-            # Assuming standard image-like grid (0-1 float prefered)
+            # 2. Process Grid State (CR values are 0-1)
+            # CR grid의 경우 대부분 0이지만, 일부 셀에 CR 값 존재
+            # Min-max normalization 대신 그대로 사용 (0-1 범위)
             grid_tensor = torch.FloatTensor(grid_raw).to(self.device)
-            if grid_tensor.max() > 1.0:
-                grid_tensor /= 255.0
+            # CR 값은 이미 0-1 범위이므로 추가 정규화 불필요
+            # 단, 대부분 0인 경우 CNN 학습을 위해 약간의 noise 추가 가능
+            if update_rms and add_noise:
+                # 탐색 시 약간의 noise 추가로 sparse signal 문제 완화
+                grid_tensor += torch.randn_like(grid_tensor) * 0.01
+                grid_tensor = torch.clamp(grid_tensor, 0, 1)
             
             # Ensure dimension is (1, 128, 128) for single sample input
             if grid_tensor.dim() == 2:
@@ -397,31 +459,37 @@ class MLPCNNPPO:
                 v_loss2 = self.MseLoss(values_clipped, b_returns)
                 critic_loss = 0.5 * torch.max(v_loss1, v_loss2)
                 
-                entropy_loss = -0.01 * dist_entropy.mean()
+                # Use dynamic entropy coefficient
+                entropy_loss = -self.ent_coef * dist_entropy.mean()
                 
                 loss = actor_loss + critic_loss + entropy_loss
 
-                # KL Check
+                self.optimizer.zero_grad()
+                loss.backward()
+                # Gradient clipping 강화로 안정성 향상
+                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.3)
+                self.optimizer.step()
+                
+                total_loss += loss.item()
+                num_updates += 1
+
+                # KL Check (Moved after update)
                 with torch.no_grad():
                     approx_kl = torch.mean((ratios - 1) - logprobs + b_old_logprobs).item()
 
                 if self.target_kl is not None and approx_kl > 1.5 * self.target_kl:
                     break
                 
-                self.optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.5)
-                self.optimizer.step()
-                
-                total_loss += loss.item()
-                num_updates += 1
-            
             if self.target_kl is not None and approx_kl > 1.5 * self.target_kl:
                 print(f"⚠️  Early stopping at epoch {epoch+1} due to KL: {approx_kl:.4f}")
                 break
         
         self.policy_old.load_state_dict(self.policy.state_dict())
         self.buffer.clear()
+        
+        # Decay entropy coefficient
+        self.decay_ent_coef()
+        
         self.iter_count += 1
         
         avg_loss = total_loss / num_updates if num_updates > 0 else 0
@@ -429,10 +497,11 @@ class MLPCNNPPO:
         
         self.writer.add_scalar("train/total_loss", avg_loss, self.iter_count)
         self.writer.add_scalar("train/action_std", current_std, self.iter_count)
+        self.writer.add_scalar("train/ent_coef", self.ent_coef, self.iter_count) # Log ent_coef
         self.writer.add_scalar("train/explained_variance", explained_var.item(), self.iter_count)
         
         if self.iter_count % 10 == 0:
-            print(f"Iter {self.iter_count} | Loss: {avg_loss:.4f} | Std: {current_std:.4f}")
+            print(f"Iter {self.iter_count} | Loss: {avg_loss:.4f} | Std: {current_std:.4f} | EntCoef: {self.ent_coef:.4f}")
 
     def prepare_state(self, distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max, grid_map=None):
         """
@@ -462,7 +531,7 @@ class MLPCNNPPO:
         # 12-dim Vector
         vector_state = [
             v_x, v_y, 
-            distance/200.0, 
+            distance, 
             y_e, 
             psi_e, 
             chi_e, 
@@ -498,7 +567,8 @@ class MLPCNNPPO:
                 'model_state_dict': self.policy_old.state_dict(),
                 'obs_rms_mean': self.obs_rms.mean,
                 'obs_rms_var': self.obs_rms.var,
-                'obs_rms_count': self.obs_rms.count
+                'obs_rms_count': self.obs_rms.count,
+                'ent_coef': self.ent_coef # Save ent_coef
             }, 
             "%s/%s_policy.pth" % (directory, filename)
         )
@@ -515,6 +585,9 @@ class MLPCNNPPO:
             self.obs_rms.mean = checkpoint['obs_rms_mean']
             self.obs_rms.var = checkpoint['obs_rms_var']
             self.obs_rms.count = checkpoint['obs_rms_count']
+            if 'ent_coef' in checkpoint:
+                self.ent_coef = checkpoint['ent_coef']
+                print(f"Loaded ent_coef: {self.ent_coef}")
             print(f"Loaded weights and RMS stats from: {directory}")
         else:
             self.policy_old.load_state_dict(checkpoint)
