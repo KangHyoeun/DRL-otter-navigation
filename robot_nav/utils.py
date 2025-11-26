@@ -288,3 +288,64 @@ class RunningMeanStd:
         self.count = new_count
 
 import numpy as np
+from colregs_core.geometry import math_to_maritime_velocity
+
+def prepare_multi_modal_state(distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max, grid_map=None):
+    """
+    Prepares the 12-dim vector state AND the 2D grid map.
+    Common state preparation logic for MLPCNNPPO, MLPCNNSAC, MLPCNNTD3.
+    
+    Args:
+        distance (float): Distance to goal
+        y_e (float): Cross track error
+        psi_e (float): Heading error
+        chi_e (float): Course error
+        phi_tilde (float): Path angle error
+        collision (bool): Collision flag
+        goal (bool): Goal reached flag
+        action (list/array): Current action [u, r]
+        robot_state (np.array): Robot state vector from IR-SIM
+        CR_max (float): Maximum collision risk
+        grid_map (np.array): 128x128 Occupancy/Risk Grid (passed externally).
+                             If None, a dummy grid is created.
+    
+    Returns:
+        tuple: ((vector_state, grid_map), terminal)
+    """
+    # Velocities
+    psi_math_deg = np.degrees(robot_state[2, 0])
+    speed = np.linalg.norm([robot_state[3, 0], robot_state[4, 0]])
+    v_x, v_y = math_to_maritime_velocity(psi_math_deg, speed)
+    
+    u_ref, u_actual = action[0], robot_state[3, 0]
+    u_e = u_ref - u_actual
+    
+    r_ref, r_actual = action[1], robot_state[5, 0]
+    r_e = r_ref - r_actual
+    
+    n1, n2 = robot_state[6, 0], robot_state[7, 0]
+
+    # 12-dim Vector
+    vector_state = [
+        v_x, v_y, 
+        distance, 
+        y_e, 
+        psi_e, 
+        chi_e, 
+        phi_tilde, 
+        CR_max, 
+        u_e, 
+        r_e, 
+        n1, 
+        n2
+    ]
+    
+    # 2D Grid
+    if grid_map is None:
+        # WARNING: This is just a fallback to prevent crash if environment isn't ready
+        grid_map = np.zeros((128, 128), dtype=np.float32)
+    
+    terminal = 1 if collision or goal else 0
+
+    return (vector_state, grid_map), terminal
+

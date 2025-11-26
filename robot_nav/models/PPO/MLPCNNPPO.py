@@ -9,7 +9,7 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from pathlib import Path
 from colregs_core.geometry import math_to_maritime_velocity
-from robot_nav.utils import RunningMeanStd
+from robot_nav.utils import RunningMeanStd, prepare_multi_modal_state
 
 def init_weights(module, gain=1.0):
     """
@@ -338,11 +338,8 @@ class MLPCNNPPO:
             vec_tensor = torch.FloatTensor(vec_norm).to(self.device)
             
             # 2. Process Grid State (CR values are 0-1)
-            # CR grid의 경우 대부분 0이지만, 일부 셀에 CR 값 존재
-            # Min-max normalization 대신 그대로 사용 (0-1 범위)
             grid_tensor = torch.FloatTensor(grid_raw).to(self.device)
-            # CR 값은 이미 0-1 범위이므로 추가 정규화 불필요
-            # 단, 대부분 0인 경우 CNN 학습을 위해 약간의 noise 추가 가능
+
             if update_rms and add_noise:
                 # 탐색 시 약간의 noise 추가로 sparse signal 문제 완화
                 grid_tensor += torch.randn_like(grid_tensor) * 0.01
@@ -391,13 +388,19 @@ class MLPCNNPPO:
         # Grid States
         grid_states_np = np.array(self.buffer.grid_states, dtype=np.float32)
         grid_states = torch.tensor(grid_states_np, dtype=torch.float32).to(self.device)
-        if grid_states.max() > 1.0: grid_states /= 255.0
-        if grid_states.dim() == 3: grid_states = grid_states.unsqueeze(1) # Add channel (B, 1, H, W)
+        # if grid_states.max() > 1.0: grid_states /= 255.0
+        
+        # Ensure (N, 1, H, W)
+        if grid_states.dim() == 3: 
+            grid_states = grid_states.unsqueeze(1) 
             
         next_grid_np = np.array(self.buffer.next_grid_states, dtype=np.float32)
         next_grid_states = torch.tensor(next_grid_np, dtype=torch.float32).to(self.device)
-        if next_grid_states.max() > 1.0: next_grid_states /= 255.0
-        if next_grid_states.dim() == 3: next_grid_states = next_grid_states.unsqueeze(1)
+        # if next_grid_states.max() > 1.0: next_grid_states /= 255.0
+        
+        # Ensure (N, 1, H, W)
+        if next_grid_states.dim() == 3: 
+            next_grid_states = next_grid_states.unsqueeze(1)
 
         # Other data
         old_actions = torch.tensor(np.array(self.buffer.actions), dtype=torch.float32).to(self.device)
@@ -414,11 +417,15 @@ class MLPCNNPPO:
             rewards, old_state_values, next_state_values, dones
         )
         
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         explained_var = 1 - torch.var(returns - old_state_values) / (torch.var(returns) + 1e-8)
         
         dataset_size = vec_states.shape[0]
         total_loss = 0
+        total_actor_loss = 0
+        total_critic_loss = 0
+        total_entropy = 0
+        total_approx_kl = 0
+        total_clip_frac = 0
         num_updates = 0
         
         # 3. Mini-batch Training
@@ -437,7 +444,10 @@ class MLPCNNPPO:
                 b_advantages = advantages[batch_indices]
                 b_returns = returns[batch_indices]
                 b_old_values = old_state_values[batch_indices]
-                
+
+                # Mini-batch Advantage Normalization
+                b_advantages = (b_advantages - b_advantages.mean()) / (b_advantages.std() + 1e-8)
+
                 # Evaluate
                 logprobs, state_values, dist_entropy = self.policy.evaluate(
                     b_vec, b_grid, b_actions
@@ -446,10 +456,15 @@ class MLPCNNPPO:
                 state_values = torch.squeeze(state_values)
                 
                 # Loss calculation
-                ratios = torch.exp(logprobs - b_old_logprobs)
+                log_ratio = logprobs - b_old_logprobs
+                ratios = torch.exp(log_ratio)
+                
                 surr1 = ratios * b_advantages
                 surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * b_advantages
                 actor_loss = -torch.min(surr1, surr2).mean()
+                
+                # Calculate clip fraction
+                clip_frac = (torch.abs(ratios - 1.0) > self.eps_clip).float().mean().item()
                 
                 values_pred = state_values
                 values_clipped = b_old_values + torch.clamp(
@@ -467,15 +482,21 @@ class MLPCNNPPO:
                 self.optimizer.zero_grad()
                 loss.backward()
                 # Gradient clipping 강화로 안정성 향상
-                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.3)
+                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.5)
                 self.optimizer.step()
                 
                 total_loss += loss.item()
+                total_actor_loss += actor_loss.item() # Accumulate actor loss
+                total_critic_loss += critic_loss.item() # Accumulate critic loss
+                total_entropy += dist_entropy.mean().item() # Accumulate entropy
+                total_clip_frac += clip_frac
                 num_updates += 1
 
                 # KL Check (Moved after update)
                 with torch.no_grad():
-                    approx_kl = torch.mean((ratios - 1) - logprobs + b_old_logprobs).item()
+                    # Calculate approx_kl http://joschu.net/blog/kl-approx.html
+                    approx_kl = torch.mean((torch.exp(log_ratio) - 1) - log_ratio).item()
+                    total_approx_kl += approx_kl
 
                 if self.target_kl is not None and approx_kl > 1.5 * self.target_kl:
                     break
@@ -493,71 +514,33 @@ class MLPCNNPPO:
         self.iter_count += 1
         
         avg_loss = total_loss / num_updates if num_updates > 0 else 0
-        current_std = torch.exp(self.policy.log_std).mean().item()
+        avg_actor_loss = total_actor_loss / num_updates if num_updates > 0 else 0
+        avg_critic_loss = total_critic_loss / num_updates if num_updates > 0 else 0
+        avg_entropy = total_entropy / num_updates if num_updates > 0 else 0
+        avg_approx_kl = total_approx_kl / num_updates if num_updates > 0 else 0
+        avg_clip_frac = total_clip_frac / num_updates if num_updates > 0 else 0
+        
+        current_std = torch.exp(self.policy.log_std).mean().item() 
         
         self.writer.add_scalar("train/total_loss", avg_loss, self.iter_count)
-        self.writer.add_scalar("train/action_std", current_std, self.iter_count)
-        self.writer.add_scalar("train/ent_coef", self.ent_coef, self.iter_count) # Log ent_coef
+        self.writer.add_scalar("train/actor_loss", avg_actor_loss, self.iter_count)
+        self.writer.add_scalar("train/critic_loss", avg_critic_loss, self.iter_count)
+        self.writer.add_scalar("train/entropy", avg_entropy, self.iter_count)
         self.writer.add_scalar("train/explained_variance", explained_var.item(), self.iter_count)
+        self.writer.add_scalar("train/action_std", current_std, self.iter_count)
+        self.writer.add_scalar("train/approx_kl", avg_approx_kl, self.iter_count)
+        self.writer.add_scalar("train/clip_fraction", avg_clip_frac, self.iter_count)
         
         if self.iter_count % 10 == 0:
-            print(f"Iter {self.iter_count} | Loss: {avg_loss:.4f} | Std: {current_std:.4f} | EntCoef: {self.ent_coef:.4f}")
+            print(f"Iter {self.iter_count} | Loss: {avg_loss:.4f} | Actor: {avg_actor_loss:.4f} | Critic: {avg_critic_loss:.4f} | KL: {avg_approx_kl:.4f} | Clip: {avg_clip_frac:.2f}")
 
     def prepare_state(self, distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max, grid_map=None):
         """
-        Prepares the 12-dim vector state AND the 2D grid map.
-        
-        Args:
-            ...
-            grid_map (np.array): 128x128 Occupancy Grid (passed externally).
-                                 If None, a dummy grid is created (FOR DEBUGGING ONLY).
-        
-        Returns:
-            tuple: (vector_state, grid_map), terminal
+        Uses common state preparation from utils.
         """
-        # Velocities
-        psi_math_deg = np.degrees(robot_state[2, 0])
-        speed = np.linalg.norm([robot_state[3, 0], robot_state[4, 0]])
-        v_x, v_y = math_to_maritime_velocity(psi_math_deg, speed)
-        
-        u_ref, u_actual = action[0], robot_state[3, 0]
-        u_e = u_ref - u_actual
-        
-        r_ref, r_actual = action[1], robot_state[5, 0]
-        r_e = r_ref - r_actual
-        
-        n1, n2 = robot_state[6, 0], robot_state[7, 0]
-
-        # 12-dim Vector
-        vector_state = [
-            v_x, v_y, 
-            distance, 
-            y_e, 
-            psi_e, 
-            chi_e, 
-            phi_tilde, 
-            CR_max, 
-            u_e, 
-            r_e, 
-            n1, 
-            n2
-        ]
-        
-        # 2D Grid
-        if grid_map is None:
-            # WARNING: This is just a fallback to prevent crash if environment isn't ready
-            # User MUST update environment to pass 'grid_map'
-            grid_map = np.zeros((128, 128), dtype=np.float32)
-        
-        terminal = 1 if collision or goal else 0
-
-        # if self.state_log_counter % 100 == 0:
-        #     print(f"\n📊 Multi-Modal State (MLPCNNPPO) #{self.state_log_counter}")
-        #     print(f"   Vector: {vector_state[:3]}...")
-        #     print(f"   Grid Shape: {grid_map.shape}")
-        # self.state_log_counter += 1
-
-        return (vector_state, grid_map), terminal
+        return prepare_multi_modal_state(
+            distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max, grid_map
+        )
 
 
     def save(self, filename, directory):

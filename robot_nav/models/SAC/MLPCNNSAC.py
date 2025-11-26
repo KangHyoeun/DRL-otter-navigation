@@ -38,6 +38,7 @@ class MLPCNNSAC(object):
         save_directory=Path("robot_nav/models/SAC/checkpoint"),
         model_name="MLPCNNSAC",
         load_directory=Path("robot_nav/models/SAC/checkpoint"),
+        replay_buffer_capacity=100000, # Added
     ):
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -56,20 +57,18 @@ class MLPCNNSAC(object):
         # Running Mean Std for Vector State
         self.obs_rms = utils.RunningMeanStd(shape=(state_dim,))
         
-        # Replay Buffer will be initialized externally or can be here
-        # For SAC, usually buffer is managed outside or passed to train()
-        # We will create one internally if needed, but the train loop usually manages it.
-        # But for compatibility with the train script, we might need to expose it.
-        self.buffer = utils.MultiModalReplayBuffer(capacity=100000) # Default capacity
+        # Replay Buffer
+        self.buffer = utils.MultiModalReplayBuffer(capacity=replay_buffer_capacity) # Use external capacity
 
         self.train_metrics_dict = {
-            "train_critic/loss_av": [],
-            "train_actor/loss_av": [],
-            "train_actor/target_entropy_av": [],
-            "train_actor/entropy_av": [],
-            "train_alpha/loss_av": [],
-            "train_alpha/value_av": [],
-            "train/batch_reward_av": [],
+            "critic_loss_av": [],
+            "actor_loss_av": [],
+            "q_value_mean_av": [],
+            "q1_q2_diff_av": [],
+            "alpha_av": [],
+            "entropy_av": [],
+            "alpha_loss_av": [],
+            "action_std_av": [],
         }
 
         self.critic = MLPCNNDoubleQCritic(
@@ -138,17 +137,17 @@ class MLPCNNSAC(object):
 
     def load(self, filename, directory):
         self.actor.load_state_dict(
-            torch.load("%s/%s_actor.pth" % (directory, filename))
+            torch.load("%s/%s_actor.pth" % (directory, filename), weights_only=False)
         )
         self.critic.load_state_dict(
-            torch.load("%s/%s_critic.pth" % (directory, filename))
+            torch.load("%s/%s_critic.pth" % (directory, filename), weights_only=False)
         )
         self.critic_target.load_state_dict(
-            torch.load("%s/%s_critic_target.pth" % (directory, filename))
+            torch.load("%s/%s_critic_target.pth" % (directory, filename), weights_only=False)
         )
         # Load RMS stats if available
         try:
-            rms_checkpoint = torch.load("%s/%s_rms.pth" % (directory, filename))
+            rms_checkpoint = torch.load("%s/%s_rms.pth" % (directory, filename), weights_only=False)
             self.obs_rms.mean = rms_checkpoint['mean']
             self.obs_rms.var = rms_checkpoint['var']
             self.obs_rms.count = rms_checkpoint['count']
@@ -162,18 +161,40 @@ class MLPCNNSAC(object):
                 replay_buffer=replay_buffer, step=self.step, batch_size=batch_size
             )
 
-        for key, value in self.train_metrics_dict.items():
-            if len(value):
-                self.writer.add_scalar(key, mean(value), self.step)
-            self.train_metrics_dict[key] = []
-        self.step += 1
+        # ==========================================================================
+        # Modified: Log requested metrics instead of iterating through train_metrics_dict
+        # ==========================================================================
+        self.step += 1 # Increment step once per train() call after all updates
 
         if self.save_every > 0 and self.step % self.save_every == 0:
             self.save(filename=self.model_name, directory=self.save_directory)
             
-        current_std = torch.exp(self.log_alpha).item() # Actually log_alpha is related to temp, not direct action std.
-        # But we can log average action std from actor outputs
-        # self.writer.add_scalar("train/action_std", ..., self.step) # Need to extract from update_actor
+        # Calculate averages for logging
+        avg_critic_loss = mean(self.train_metrics_dict["critic_loss_av"]) if len(self.train_metrics_dict["critic_loss_av"]) > 0 else 0
+        avg_actor_loss = mean(self.train_metrics_dict["actor_loss_av"]) if len(self.train_metrics_dict["actor_loss_av"]) > 0 else 0
+        avg_q_value_mean = mean(self.train_metrics_dict["q_value_mean_av"]) if len(self.train_metrics_dict["q_value_mean_av"]) > 0 else 0
+        avg_q1_q2_diff = mean(self.train_metrics_dict["q1_q2_diff_av"]) if len(self.train_metrics_dict["q1_q2_diff_av"]) > 0 else 0
+        avg_alpha = mean(self.train_metrics_dict["alpha_av"]) if len(self.train_metrics_dict["alpha_av"]) > 0 else 0
+        avg_entropy = mean(self.train_metrics_dict["entropy_av"]) if len(self.train_metrics_dict["entropy_av"]) > 0 else 0
+        avg_alpha_loss = mean(self.train_metrics_dict["alpha_loss_av"]) if len(self.train_metrics_dict["alpha_loss_av"]) > 0 else 0
+        avg_action_std = mean(self.train_metrics_dict["action_std_av"]) if len(self.train_metrics_dict["action_std_av"]) > 0 else 0
+
+        # Log to TensorBoard
+        self.writer.add_scalar("train/critic_loss", avg_critic_loss, self.step)
+        self.writer.add_scalar("train/actor_loss", avg_actor_loss, self.step)
+        self.writer.add_scalar("train/q_value_mean", avg_q_value_mean, self.step)
+        self.writer.add_scalar("train/q1_q2_diff", avg_q1_q2_diff, self.step)
+        self.writer.add_scalar("train/alpha", avg_alpha, self.step)
+        self.writer.add_scalar("train/entropy", avg_entropy, self.step)
+        self.writer.add_scalar("train/alpha_loss", avg_alpha_loss, self.step)
+        self.writer.add_scalar("train/action_std", avg_action_std, self.step)
+        
+        # Clear metrics for next training step
+        for key in self.train_metrics_dict.keys():
+            self.train_metrics_dict[key] = []
+
+        if self.step % 10 == 0:
+            print(f"Iter {self.step} | CriticL: {avg_critic_loss:.4f} | ActorL: {avg_actor_loss:.4f} | Q_Mean: {avg_q_value_mean:.2f} | Alpha: {avg_alpha:.4f} | Entropy: {avg_entropy:.4f} | Std: {avg_action_std:.4f}")
 
     @property
     def alpha(self):
@@ -186,37 +207,40 @@ class MLPCNNSAC(object):
         """
         vec_raw, grid_raw = state
         
-        # 1. Normalize Vector State
-        vec_np = np.array(vec_raw, dtype=np.float32)
-        if update_rms:
-            self.obs_rms.update(vec_np.reshape(1, -1))
-        
-        vec_norm = (vec_np - self.obs_rms.mean) / np.sqrt(self.obs_rms.var + 1e-8)
-        
-        # 2. Process Grid
-        if np.max(grid_raw) > 1.0:
-            grid_raw = grid_raw / 255.0
-        
-        # To Tensor
-        vec_tensor = torch.FloatTensor(vec_norm).unsqueeze(0).to(self.device)
-        grid_tensor = torch.FloatTensor(grid_raw).unsqueeze(0).unsqueeze(0).to(self.device) # (1, 1, 128, 128)
-
         with torch.no_grad():
-             # SAC Act: returns action (numpy)
-             # We use sample=False for deterministic evaluation if add_noise=False
-             # But SAC explores via sampling.
+            # 1. Normalize Vector State
+            vec_np = np.array(vec_raw, dtype=np.float32)
+            if update_rms:
+                self.obs_rms.update(vec_np.reshape(1, -1))
+            
+            vec_norm = (vec_np - self.obs_rms.mean) / np.sqrt(self.obs_rms.var + 1e-8)
+            vec_tensor = torch.FloatTensor(vec_norm).to(self.device)
+
+            if vec_tensor.dim() == 1:
+                vec_tensor = vec_tensor.unsqueeze(0) # (1, state_dim)
+
+            grid_tensor = torch.FloatTensor(grid_raw).to(self.device)
+
+            if update_rms and add_noise:
+                grid_tensor += torch.randn_like(grid_tensor) * 0.01
+                grid_tensor = torch.clamp(grid_tensor, 0, 1)
+
+            if grid_tensor.dim() == 2:
+                grid_tensor = grid_tensor.unsqueeze(0).unsqueeze(0) 
+            elif grid_tensor.dim() == 3:
+                grid_tensor = grid_tensor.unsqueeze(0)
+
+            dist = self.actor(vec_tensor, grid_tensor)
+            
+            if add_noise:
+                action = dist.sample()
+            else:
+                action = dist.mean
+                
+            action = action.clamp(*self.action_range)
              
-             dist = self.actor(vec_tensor, grid_tensor)
-             if add_noise:
-                 action = dist.sample()
-             else:
-                 action = dist.mean
-                 
-             action = action.clamp(*self.action_range)
-             
-        # Return signature matching PPO: action, log_prob, state_val
-        # SAC inference doesn't typically need log_prob/val for the step, but for compatibility:
         return action.cpu().numpy().flatten(), None, None
+
 
     def update_critic(self, vec, grid, action, reward, next_vec, next_grid, done, step):
         with torch.no_grad():
@@ -227,17 +251,22 @@ class MLPCNNSAC(object):
             target_V = torch.min(target_Q1, target_Q2) - self.alpha.detach() * log_prob
             target_Q = reward + ((1 - done) * self.discount * target_V)
 
-        # get current Q estimates
         current_Q1, current_Q2 = self.critic(vec, grid, action)
         critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
             current_Q2, target_Q
         )
-        self.train_metrics_dict["train_critic/loss_av"].append(critic_loss.item())
-        self.writer.add_scalar("train_critic/loss", critic_loss, step)
+        self.train_metrics_dict["critic_loss_av"].append(critic_loss.item())
+
+        # Calculate Q-value mean and diff
+        q_value_mean = torch.mean(0.5 * (current_Q1 + current_Q2)).item()
+        q1_q2_diff = torch.mean(torch.abs(current_Q1 - current_Q2)).item()
+        self.train_metrics_dict["q_value_mean_av"].append(q_value_mean)
+        self.train_metrics_dict["q1_q2_diff_av"].append(q1_q2_diff)
 
         # Optimize the critic
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
         self.critic_optimizer.step()
         if self.log_dist_and_hist:
             self.critic.log(self.writer, step)
@@ -251,20 +280,18 @@ class MLPCNNSAC(object):
         actor_Q = torch.min(actor_Q1, actor_Q2)
         actor_loss = (self.alpha.detach() * log_prob - actor_Q).mean()
         
-        self.train_metrics_dict["train_actor/loss_av"].append(actor_loss.item())
-        self.train_metrics_dict["train_actor/target_entropy_av"].append(
-            self.target_entropy
-        )
-        self.train_metrics_dict["train_actor/entropy_av"].append(
+        self.train_metrics_dict["actor_loss_av"].append(actor_loss.item())
+        self.train_metrics_dict["entropy_av"].append(
             -log_prob.mean().item()
         )
-        self.writer.add_scalar("train_actor/loss", actor_loss, step)
-        self.writer.add_scalar("train_actor/target_entropy", self.target_entropy, step)
-        self.writer.add_scalar("train_actor/entropy", -log_prob.mean(), step)
+        self.train_metrics_dict["action_std_av"].append( # Accumulate action_std
+            dist.scale.mean().item()
+        )
 
         # optimize the actor
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
         self.actor_optimizer.step()
         if self.log_dist_and_hist:
             self.actor.log(self.writer, step)
@@ -274,10 +301,8 @@ class MLPCNNSAC(object):
             alpha_loss = (
                 self.alpha * (-log_prob - self.target_entropy).detach()
             ).mean()
-            self.train_metrics_dict["train_alpha/loss_av"].append(alpha_loss.item())
-            self.train_metrics_dict["train_alpha/value_av"].append(self.alpha.item())
-            self.writer.add_scalar("train_alpha/loss", alpha_loss, step)
-            self.writer.add_scalar("train_alpha/value", self.alpha, step)
+            self.train_metrics_dict["alpha_loss_av"].append(alpha_loss.item())
+            self.train_metrics_dict["alpha_av"].append(self.alpha.item())
             alpha_loss.backward()
             self.log_alpha_optimizer.step()
 
@@ -316,11 +341,6 @@ class MLPCNNSAC(object):
         rewards = torch.FloatTensor(rewards).to(self.device)
         dones = torch.FloatTensor(dones).to(self.device)
 
-        self.train_metrics_dict["train/batch_reward_av"].append(
-            rewards.mean().item()
-        )
-        self.writer.add_scalar("train/batch_reward", rewards.mean(), step)
-
         self.update_critic(vec_states, grid_states, actions, rewards, next_vec_states, next_grid_states, dones, step)
 
         if step % self.actor_update_frequency == 0:
@@ -331,39 +351,8 @@ class MLPCNNSAC(object):
 
     def prepare_state(self, distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max, grid_map=None):
         """
-        Identical to MLPCNNPPO.prepare_state
+        Uses common state preparation from utils.
         """
-        # Velocities
-        psi_math_deg = np.degrees(robot_state[2, 0])
-        speed = np.linalg.norm([robot_state[3, 0], robot_state[4, 0]])
-        v_x, v_y = math_to_maritime_velocity(psi_math_deg, speed)
-        
-        u_ref, u_actual = action[0], robot_state[3, 0]
-        u_e = u_ref - u_actual
-        
-        r_ref, r_actual = action[1], robot_state[5, 0]
-        r_e = r_ref - r_actual
-        
-        n1, n2 = robot_state[6, 0], robot_state[7, 0]
-
-        # 12-dim Vector
-        vector_state = [
-            v_x, v_y, 
-            distance, 
-            y_e, 
-            psi_e, 
-            chi_e, 
-            phi_tilde, 
-            CR_max, 
-            u_e, 
-            r_e, 
-            n1, 
-            n2
-        ]
-        
-        if grid_map is None:
-            grid_map = np.zeros((128, 128), dtype=np.float32)
-        
-        terminal = 1 if collision or goal else 0
-
-        return (vector_state, grid_map), terminal
+        return utils.prepare_multi_modal_state(
+            distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max, grid_map
+        )

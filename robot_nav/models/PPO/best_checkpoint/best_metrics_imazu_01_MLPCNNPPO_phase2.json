@@ -1,9 +1,0 @@
-{
-  "epoch": 1,
-  "avg_reward": 3538.2529909284044,
-  "goal_rate": 0.0,
-  "collision_rate": 0.2,
-  "action_std": 0.6100234985351562,
-  "training_mode": "random_phase2",
-  "imazu_scenario": "01-04"
-}

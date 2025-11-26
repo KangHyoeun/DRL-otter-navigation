@@ -1,0 +1,15 @@
+# TD3 Hyperparameters
+algo: "TD3"
+batch_size: 256
+replay_buffer_capacity: 100000
+discount: 0.99
+tau: 0.005
+policy_noise: 0.2
+noise_clip: 0.5
+policy_freq: 2
+lr: 0.0003
+
+# Training specifics
+train_every_n_steps: 50
+training_iterations: 50
+warmup_steps: 10000

@@ -230,16 +230,20 @@ class OtterSIM(SIM_ENV):
         collision = self.env.robot.collision
         action_return = [u_ref, r_ref]
         
-        self.prev_position = os_position
-        self.prev_heading = os_heading
-        self.prev_distance = distance
-        
         cr_grid = self._create_cr_grid(os_position, os_heading, os_speed)
+
+        # Pass -phi_tilde as relative_course (positive for starboard turn relative to ref path)
+        relative_course = -phi_tilde
 
         reward = self.get_reward(
             goal, collision, distance, y_e, os_speed, os_position, os_velocity, os_heading,
-            ts_speed, ts_position, ts_velocity, ts_heading, CR_max, encounter_type, is_static_obstacle, cr_grid
+            ts_speed, ts_position, ts_velocity, ts_heading, CR_max, encounter_type, is_static_obstacle, cr_grid, relative_course
         )
+        
+        # Update previous state AFTER reward calculation
+        self.prev_position = os_position
+        self.prev_heading = os_heading
+        self.prev_distance = distance
         
         # Render if enabled
         if not self.env.disable_all_plot:
@@ -310,7 +314,7 @@ class OtterSIM(SIM_ENV):
     def get_reward(self, goal, collision, distance, y_e, 
                    os_speed, os_position, os_velocity, os_heading, 
                    ts_speed, ts_position, ts_velocity, ts_heading,
-                   CR_max, encounter_type, is_static_obstacle, cr_grid):
+                   CR_max, encounter_type, is_static_obstacle, cr_grid, relative_course):
         
         reward_dict = self.reward_calculator.calculate_total_reward(
             current_distance=distance, previous_distance=self.prev_distance,
@@ -318,8 +322,7 @@ class OtterSIM(SIM_ENV):
             os_position=os_position, os_velocity=os_velocity, os_heading=os_heading,
             previous_heading=self.prev_heading, ts_speed=ts_speed,
             ts_position=ts_position, ts_velocity=ts_velocity, ts_heading=ts_heading,
-            start_position=self.start_position, CR_max=CR_max,
-            encounter_type=encounter_type, goal_position=self.goal_position,
+            CR_max=CR_max, encounter_type=encounter_type, relative_course=relative_course,
             is_static_obstacle=is_static_obstacle,
             w_efficiency=self.w_efficiency, w_safety=self.w_safety
         )
@@ -341,7 +344,8 @@ class OtterSIM(SIM_ENV):
         
         # 일반 스텝 보상:
         # r_total 범위 -2 ~ +2 가정
-        total_reward = (reward_dict['r_total'] * 2.5) - 5.0
+        total_reward = reward_dict['r_total'] 
+        total_reward -= 0.01  # Living penalty
 
         # if self.reward_log_counter % 100 == 0:
         #     print(f"\n💰 Reward Log (step #{self.reward_log_counter}):")
@@ -353,6 +357,8 @@ class OtterSIM(SIM_ENV):
         self.reward_log_counter += 1
         
         # 보상 스케일링 적용
+
+        self.latest_rewards = reward_dict
         return total_reward * 0.01
     
     def _create_cr_grid(self, os_position, os_heading, os_speed):

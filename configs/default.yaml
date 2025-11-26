@@ -1,0 +1,61 @@
+# Default Configuration
+device: "cuda" # or "cpu"
+seed: 42
+
+# Environment
+max_steps: 512
+action_dim: 2
+state_dim: 12
+max_action: 1.0
+
+# Training Loop
+max_epochs: 4000
+episodes_per_epoch: 40
+nr_eval_episodes: 10
+save_every: 10
+load_model: false
+
+# Simulation
+chi_inf: 1.0
+k: 1.0
+w_efficiency: 1.0
+w_safety: 3.0
+os_speed_for_cr: 3.0
+ts_speed_for_cr: 3.0
+
+# Paths
+save_directory: "robot_nav/models/{algo}/checkpoint"
+load_directory: "robot_nav/models/{algo}/best_checkpoint"
+best_checkpoint_dir: "robot_nav/models/{algo}/best_checkpoint"
+
+# Phase Worlds
+phase1_worlds:
+  - "robot_nav/worlds/imazu_scenario/imazu_case_00.yaml"
+
+phase2_worlds:
+  - "robot_nav/worlds/imazu_scenario/imazu_case_01.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_02.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_03.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_04.yaml"
+
+phase3_worlds:
+  - "robot_nav/worlds/imazu_scenario/imazu_case_05.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_06.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_07.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_08.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_09.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_10.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_11.yaml"
+
+phase4_worlds:
+  - "robot_nav/worlds/imazu_scenario/imazu_case_12.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_13.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_14.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_15.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_16.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_17.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_18.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_19.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_20.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_21.yaml"
+  - "robot_nav/worlds/imazu_scenario/imazu_case_22.yaml"

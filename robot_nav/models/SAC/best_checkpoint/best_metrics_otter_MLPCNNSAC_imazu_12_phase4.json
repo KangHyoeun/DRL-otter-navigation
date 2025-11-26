@@ -1,0 +1,9 @@
+{
+  "epoch": 6,
+  "avg_reward": 26.879699609825526,
+  "goal_rate": 1.0,
+  "collision_rate": 0.0,
+  "composite_score": 100.07687969960982,
+  "phase": 4,
+  "alpha_temp": 0.01413156830049515
+}

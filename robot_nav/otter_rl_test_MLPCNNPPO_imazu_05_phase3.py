@@ -52,7 +52,7 @@ def main(args=None):
     # Note: We initialize with one world, but will reset with random worlds
     sim = OtterSIM(
         world_file=phase3_worlds[0],
-        disable_plotting=False, # Enable visualization
+        disable_plotting=True, # Enable visualization
         enable_phase1=True, 
         max_steps=max_steps,
         cr_method='jeon', 
