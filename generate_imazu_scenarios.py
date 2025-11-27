@@ -195,8 +195,8 @@ def generate_obstacle_yaml(target_ships):
         # Calculate goal position (ship travels through collision point toward opposite direction)
         # Collision point is at origin (0, 0)
         # Goal is 2x distance beyond collision point
-        goal_x = -x_m
-        goal_y = -y_m
+        goal_x = -2*x_m
+        goal_y = -2*y_m
         
         obstacle_yaml = f"""  - number: 1
     kinematics: {{name: 'otter_usv'}}

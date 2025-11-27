@@ -1,117 +1,149 @@
-# DRL-Otter-Navigation: Autonomous COLREGs-Compliant Navigation
+# DRL Otter Navigation 🦦🚢
 
-## 🎯 Project Overview
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c)](https://pytorch.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This project implements a Deep Reinforcement Learning (DRL) framework to train an Otter Unmanned Surface Vehicle (USV) for autonomous, COLREGs-compliant navigation. The agent is trained using a curriculum learning approach, progressively mastering more complex multi-vessel encounter scenarios.
+**Deep Reinforcement Learning for Autonomous Collision Avoidance of Unmanned Surface Vehicles (USVs).**
 
-The framework integrates the `ir-sim` 2D simulator for LiDAR sensing and visualization with the `PythonVehicleSimulator` for realistic 6-DOF USV dynamics.
-
-## ✨ Key Features
-
--   **Curriculum Learning:** A multi-phase training structure that starts with simple goal-reaching and progressively adds 1, 2, and 3 dynamic target ships.
--   **PPO Agent:** Utilizes a Proximal Policy Optimization (PPO) agent, a state-of-the-art DRL algorithm.
--   **CNN-based Perception:** A Convolutional Neural Network (CNN) processes 360-degree LiDAR data to extract key environmental features.
--   **Domain Randomization:** At each training phase, the agent is exposed to a variety of randomized encounter scenarios (head-on, crossing, overtaking) to promote a robust and generalizable policy.
--   **Modular Reward System:** Leverages the `colregs-core` library for sophisticated, customizable reward calculations based on maritime best practices.
+This project implements a robust DRL-based navigation system for the **Otter USV**, capable of avoiding dynamic obstacles while adhering to **COLREGs (International Regulations for Preventing Collisions at Sea)**. It supports Multi-Modal inputs (Lidar/Grid Map + State Vector) and state-of-the-art DRL algorithms like **PPO**, **SAC**, and **TD3**.
 
 ---
 
-## 🚀 Getting Started
+## 🌟 Key Features
 
-### 1. Environment Setup
+*   **Multi-Modal DRL Agents:** Combines **Vector inputs** (velocity, heading, goal info) with **2D Grid Maps** (local perception) using a hybrid MLP-CNN architecture (`MLPCNN`).
+*   **Supported Algorithms:**
+    *   **PPO** (Proximal Policy Optimization) - On-Policy
+    *   **SAC** (Soft Actor-Critic) - Off-Policy, Maximum Entropy
+    *   **TD3** (Twin Delayed DDPG) - Off-Policy, Deterministic
+*   **Curriculum Learning:** Structured training phases (Phase 1 $\rightarrow$ 4) to gradually increase scenario complexity.
+*   **COLREGs Compliance:** Reward functions designed to encourage compliance with maritime traffic rules (Head-on, Crossing, Overtaking).
+*   **Integrated Training Manager:** A single script (`train_manager.py`) to manage training, transfer learning, and hyperparameters.
 
-It is recommended to use `conda` for managing the environment and `poetry` for installing Python dependencies.
+---
+
+## 📦 Installation
+
+### 1. Clone the Repository
 
 ```bash
-# 1. Clone the repository
-git clone <your-repo-url>
+git clone https://github.com/your-username/DRL-otter-navigation.git
 cd DRL-otter-navigation
+```
 
-# 2. Activate the conda environment
-# Ensure you have the correct environment activated
-conda activate DRL-otter-nav
+### 2. Set up Environment
 
-# 3. Install dependencies using Poetry
-# This will install all packages listed in pyproject.toml
+We recommend using **Conda** for environment management and **Poetry** for dependency management.
+
+```bash
+# Create and activate conda environment
+conda create -n venv-name python=3.10
+conda activate venv-name
+
+# Install dependencies using Poetry
+pip install poetry
 poetry install
 ```
 
-*Note: This project also depends on the `colregs-core` library, which should be located at `/home/hyo/colregs-core/` and installed in your environment.*
+**Dependencies:**
+*   `torch`, `numpy`, `matplotlib`
+*   `colregs-core` (Local or submodule)
+*   `ir-sim` (Simulation environment)
 
-### 2. Project Structure
+---
+
+## 🚀 Usage Guide
+
+### 1. Training (train_manager.py)
+
+Use the `train_manager.py` script to start training. It handles algorithm selection, curriculum phases, and model saving/loading.
+
+#### **Arguments:**
+*   `--algo`: Algorithm to use (`ppo`, `sac`, `td3`).
+*   `--phase`: Curriculum phase (1: Navigation, 2: One Obstacle, 3: Multiple Obstacles, 4: Complex).
+*   `--scratch`: Train from scratch (ignore previous phase models).
+*   `--load_model`: Resume training from the *current* phase's checkpoint.
+
+#### **Examples:**
+
+**Start Phase 1 (Basic Navigation) with PPO:**
+```bash
+poetry run python3 train_manager.py --algo ppo --phase 1
+```
+
+**Start Phase 2 (Collision Avoidance) using Phase 1 weights (Transfer Learning):**
+```bash
+poetry run python3 train_manager.py --algo sac --phase 2
+```
+
+**Start Phase 2 from Scratch (No Transfer):**
+```bash
+poetry run python3 train_manager.py --algo td3 --phase 2 --scratch
+```
+
+**Resume interrupted training (Phase 2):**
+```bash
+poetry run python3 train_manager.py --algo sac --phase 2 --load_model
+```
+
+### 2. Monitoring (TensorBoard)
+
+Monitor training progress, reward curves, and losses in real-time.
+
+```bash
+tensorboard --logdir runs
+```
+Open your browser and go to `http://localhost:6006`.
+
+### 3. Configuration
+
+Hyperparameters for each algorithm and environment settings are managed in `configs/`.
+
+*   `configs/default.yaml`: Common settings (steps, epochs, rewards).
+*   `configs/ppo.yaml`: PPO-specific hyperparameters.
+*   `configs/sac.yaml`: SAC-specific hyperparameters.
+*   `configs/td3.yaml`: TD3-specific hyperparameters.
+
+Example (`configs/sac.yaml`):
+```yaml
+batch_size: 256
+learning_rate: 0.0003
+gamma: 0.99
+replay_buffer_capacity: 100000
+```
+
+---
+
+## 📂 Project Structure
 
 ```
 DRL-otter-navigation/
+├── configs/                 # Hyperparameter configurations (YAML)
 ├── robot_nav/
-│   ├── models/PPO/
-│   │   └── CNNPPO.py             # Core PPO agent with CNN
-│   ├── SIM_ENV/
-│   │   └── otter_sim.py          # Otter USV simulation environment
-│   ├── worlds/imazu_scenario/
-│   │   └── imazu_case_*.yaml     # World files for each curriculum phase
-│   ├── otter_rl_train_CNNPPO_imazu_00_scratch.py   # Phase 1 Training
-│   ├── otter_rl_train_CNNPPO_imazu_01_phase2.py    # Phase 2 Training
-│   ├── otter_rl_train_CNNPPO_imazu_02_phase3.py    # Phase 3 Training
-│   └── otter_rl_train_CNNPPO_imazu_03_phase4.py    # Phase 4 Training
-└── README.md
+│   ├── models/
+│   │   ├── PPO/             # MLPCNNPPO
+│   │   ├── SAC/             # MLPCNNSAC
+│   │   └── TD3/             # MLPCNNTD3
+│   ├── SIM_ENV/             # OtterSIM Environment Wrapper
+│   └── worlds/              # Simulation Scenarios (YAML)
+├── trainers/                # Training Loops
+│   ├── on_policy.py         # Trainer for PPO
+│   └── off_policy.py        # Trainer for SAC/TD3
+├── train_manager.py         # Main Entry Point
+└── README.md                # This file
 ```
 
 ---
 
-## 🧠 Training the Agent
+## 🔗 Related Projects
 
-The agent is trained using a 4-phase curriculum. You must run the training scripts sequentially, as each phase loads the best model from the previous one.
-
-### Training Commands
-
-Run these commands from the project root (`/home/hyo/DRL-otter-navigation`).
-
-**Phase 1: Goal Reaching (0 Target Ships)**
-```bash
-poetry run python3 robot_nav/otter_rl_train_CNNPPO_imazu_00_scratch.py
-```
-
-**Phase 2: 1 Target Ship**
-*Loads the best model from Phase 1.*
-```bash
-poetry run python3 robot_nav/otter_rl_train_CNNPPO_imazu_01_phase2.py
-```
-
-**Phase 3: 2 Target Ships**
-*Loads the best model from Phase 2.*
-```bash
-poetry run python3 robot_nav/otter_rl_train_CNNPPO_imazu_02_phase3.py
-```
-
-**Phase 4: 3 Target Ships**
-*Loads the best model from Phase 3.*
-```bash
-poetry run python3 robot_nav/otter_rl_train_CNNPPO_imazu_03_phase4.py
-```
-
-### Monitoring Training
-
-You can monitor the training progress, including rewards, loss functions, and other metrics, using TensorBoard.
-
-```bash
-# In a new terminal, from the project root
-tensorboard --logdir runs
-```
-Navigate to `http://localhost:6006` in your web browser.
+*   [**colregs-core**](https://github.com/your-username/colregs-core): The core library for collision risk assessment and reward calculation used in this project.
 
 ---
 
-## 🛠️ Technical Details
+## 📄 License
 
--   **DRL Algorithm**: Proximal Policy Optimization (PPO)
--   **State Space (`370-dim`):**
-    -   LiDAR Scans: 360 points
-    -   Velocity Info: 2 values
-    -   Path Error Info: 2 values
-    -   Goal Info: 3 values
-    -   Propeller Info: 2 values
-    -   Max Collision Risk: 1 value
--   **Action Space (`2-dim`):**
-    -   `u_ref`: Surge velocity reference
-    -   `r_ref`: Yaw rate reference
--   **Dependencies:** `ir-sim`, `PythonVehicleSimulator`, `pytorch`, `colregs-core`
+This project is licensed under the **MIT License**.
+
+```

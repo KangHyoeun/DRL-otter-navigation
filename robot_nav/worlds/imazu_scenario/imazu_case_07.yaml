@@ -45,7 +45,7 @@ obstacle:
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [-63.000, 0.000, 0.0000, 0, 0, 0, 0, 0]
-    goal: [63.000, -0.000, 0.0000]
+    goal: [126.000, -0.000, 0.0000]
     arrive_mode: position
     goal_threshold: 10.0
 
@@ -57,7 +57,7 @@ obstacle:
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [-63.645, 63.645, -0.7854, 0, 0, 0, 0, 0]
-    goal: [63.645, -63.645, -0.7854]
+    goal: [127.290, -127.290, -0.7854]
     arrive_mode: position
     goal_threshold: 10.0
 

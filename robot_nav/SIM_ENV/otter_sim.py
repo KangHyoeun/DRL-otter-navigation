@@ -457,3 +457,50 @@ class OtterSIM(SIM_ENV):
         # Update using maximum: grid[mask] = max(grid[mask], cr_value)
         # Numpy's maximum function is efficient
         np.maximum(grid_slice, cr_value, out=grid_slice, where=mask)
+
+    def render(self, mode='human', **kwargs):
+        """
+        Render the simulation with enhanced visualization.
+        """
+        if not hasattr(self.env, 'plot'):
+            return
+
+        # 1. Basic Render
+        # Pass show_vectors and show_domain to object plot
+        self.env.render(show_trajectory=True, show_vectors=True, show_domain=True, **kwargs)
+        
+        # 2. Update Info Box
+        u_ref = kwargs.get('u_ref', 0.0)
+        r_ref = kwargs.get('r_ref', 0.0)
+        reward = kwargs.get('reward', 0.0)
+        
+        robot_state = self.env.robot.state
+        u_actual = robot_state[3, 0]
+        r_actual = robot_state[5, 0]
+        
+        info_str = (f"u_cmd: {u_ref:.2f} m/s\n"
+                    f"u_act: {u_actual:.2f} m/s\n"
+                    f"r_cmd: {r_ref:.3f} rad/s\n"
+                    f"r_act: {r_actual:.3f} rad/s\n"
+                    f"Rew: {reward:.2f}")
+        
+        if hasattr(self.env.plot, 'update_info_box'):
+            self.env.plot.update_info_box(info_str)
+        
+        # 3. Update Action Bar
+        if hasattr(self.env.plot, 'update_action_bar'):
+            self.env.plot.update_action_bar(u_ref, r_ref)
+        
+        # 4. Overlay Risk Grid Map (if provided)
+        grid_map = kwargs.get('grid_map', None)
+        if grid_map is not None:
+            if not hasattr(self, 'grid_ax'):
+                from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+                # Create inset axes at top right
+                self.grid_ax = inset_axes(self.env.plot.ax, width="30%", height="30%", loc='upper right', borderpad=1)
+                self.grid_ax.set_title("Risk Grid", fontsize=8, color='white')
+                self.grid_ax.axis('off')
+                self.grid_img = self.grid_ax.imshow(grid_map, cmap='jet', vmin=0, vmax=1, origin='lower')
+            else:
+                self.grid_img.set_data(grid_map)
+```

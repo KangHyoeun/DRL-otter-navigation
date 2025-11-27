@@ -302,7 +302,7 @@ class MLPCNNPPO:
         if load_model:
             self.load(filename=model_name, directory=load_directory)
 
-        self.MseLoss = nn.MSELoss()
+        self.MseLoss = nn.SmoothL1Loss()
         # Ensure runs directory exists for TensorBoard
         runs_dir = Path("runs")
         runs_dir.mkdir(parents=True, exist_ok=True)

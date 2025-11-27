@@ -229,6 +229,10 @@ def train_off_policy(config, model, worlds):
                 if patience_counter >= patience:
                     print("🛑 EARLY STOPPING!")
                     break
+                
+                # Step LR Scheduler (if enabled)
+                if hasattr(model, 'step_epoch'):
+                    model.step_epoch()
             
             distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, reward, robot_state, CR_max, cr_grid = sim.reset(world_file=random.choice(worlds))
 

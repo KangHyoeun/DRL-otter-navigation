@@ -7,7 +7,25 @@ tau: 0.005
 policy_noise: 0.2
 noise_clip: 0.5
 policy_freq: 2
-lr: 0.0003
+
+# Learning Rates (Separated)
+actor_lr: 0.0003
+critic_lr: 0.0003
+
+# Exploration Noise (Decaying)
+exploration_noise_init: 0.1      # Initial exploration noise std (relative to max_action)
+exploration_noise_min: 0.01      # Minimum exploration noise std
+exploration_noise_decay: 0.9995  # Decay factor per training iteration
+# Formula: noise_std = max(noise_min, noise_init * decay^iter_count)
+
+# Learning Rate Scheduler
+use_lr_scheduler: true
+lr_scheduler_type: "cosine"  # Options: "cosine", "linear", "exponential", "step"
+lr_decay_epochs: 1000  # Total epochs for decay (for cosine/linear)
+lr_min_factor: 0.1  # Minimum LR = initial_lr * lr_min_factor
+lr_decay_rate: 0.99  # For exponential decay
+lr_step_size: 100  # For step decay
+lr_gamma: 0.5  # For step decay
 
 # Training specifics
 train_every_n_steps: 50

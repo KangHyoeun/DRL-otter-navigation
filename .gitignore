@@ -1,3 +1,39 @@
+# Environments
 /.venv/
+/env/
+/venv/
+
+# Python cache & Build
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Logs & Metrics
 /runs/
+/logs/
 /site/
+
+# Models & Checkpoints
+checkpoint/
+best_checkpoint/
+*.pth
+*.pt
+*.onnx
+
+# Data & Outputs
+/data/
+*.png
+*.jpg
+*.gif
+*.mp4
+*.avi
+
+# IDE & System
+.vscode/
+.idea/
+.DS_Store

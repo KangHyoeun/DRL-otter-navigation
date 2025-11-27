@@ -8,6 +8,7 @@ from robot_nav.models.SAC.MLPCNNSAC_critic import MLPCNNDoubleQCritic
 from robot_nav.models.SAC.MLPCNNSAC_actor import MLPCNNDiagGaussianActor
 from torch.utils.tensorboard import SummaryWriter
 from colregs_core.geometry import math_to_maritime_velocity
+from robot_nav.utils import prepare_multi_modal_state
 
 class MLPCNNSAC(object):
     """
@@ -252,7 +253,7 @@ class MLPCNNSAC(object):
             target_Q = reward + ((1 - done) * self.discount * target_V)
 
         current_Q1, current_Q2 = self.critic(vec, grid, action)
-        critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
+        critic_loss = F.smooth_l1_loss(current_Q1, target_Q) + F.smooth_l1_loss(
             current_Q2, target_Q
         )
         self.train_metrics_dict["critic_loss_av"].append(critic_loss.item())
@@ -353,6 +354,6 @@ class MLPCNNSAC(object):
         """
         Uses common state preparation from utils.
         """
-        return utils.prepare_multi_modal_state(
+        return prepare_multi_modal_state(
             distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max, grid_map
         )

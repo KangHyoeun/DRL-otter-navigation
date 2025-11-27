@@ -33,7 +33,8 @@ def main():
     parser = argparse.ArgumentParser(description="Otter USV Training Manager")
     parser.add_argument("--algo", type=str, required=True, choices=['ppo', 'sac', 'td3'], help="Algorithm to use")
     parser.add_argument("--phase", type=int, required=True, choices=[1, 2, 3, 4], help="Curriculum phase")
-    parser.add_argument("--load_model", action='store_true', help="Load model from checkpoint")
+    parser.add_argument("--load_model", action='store_true', help="Resume training from CURRENT phase checkpoint")
+    parser.add_argument("--scratch", action='store_true', help="Train from scratch (ignore previous phase model)")
     args = parser.parse_args()
 
     # 1. Load Configurations
@@ -47,11 +48,12 @@ def main():
     config['phase'] = args.phase
     config['algo'] = args.algo.upper()
     
+    prev_phase_model = None # Initialize
+
     if args.phase == 1:
         config['warmup_steps'] = 10000
         config['worlds'] = config['phase1_worlds']
         case_id = "00"
-        prev_phase_model = None # No previous model for phase 0
         # Phase 1 Hyperparameters Override
         config['w_efficiency'] = 3.0  # 효율성 강조
         config['w_safety'] = 0.1      # 안전성 낮게 (장애물 없음)
@@ -61,7 +63,8 @@ def main():
         config['warmup_steps'] = 10000
         config['worlds'] = config['phase2_worlds']
         case_id = "01"
-        prev_phase_model = f"otter_MLPCNN{config['algo']}_imazu_00_scratch_BEST" # Phase 1 model
+        # 이전 모델 이름 규칙에 맞춤 (Phase 1 완료 모델 - 실제 파일명 확인됨)
+        prev_phase_model = f"otter_MLPCNN{config['algo']}_imazu_00_phase1_BEST"
 
     elif args.phase == 3:
         config['warmup_steps'] = 20000
@@ -75,7 +78,12 @@ def main():
         case_id = "12"
         prev_phase_model = f"otter_MLPCNN{config['algo']}_imazu_05_phase3_BEST"
 
-    config['model_name'] = f"otter_MLPCNN{config['algo']}_imazu_{case_id}_phase{args.phase}"
+    # Define Current Model Name
+    # Scratch 모드일 경우 이름에 'scratch' 포함 (선택 사항이지만 구분하기 좋음)
+    if args.scratch:
+        config['model_name'] = f"otter_MLPCNN{config['algo']}_imazu_{case_id}_scratch_phase{args.phase}"
+    else:
+        config['model_name'] = f"otter_MLPCNN{config['algo']}_imazu_{case_id}_phase{args.phase}"
     
     # Resolve Paths
     config['save_directory'] = config['save_directory'].format(algo=config['algo'])
@@ -86,6 +94,11 @@ def main():
     device = torch.device(config['device'] if torch.cuda.is_available() else "cpu")
     print(f"🚀 Initializing {config['algo']} on {device} for Phase {args.phase}")
     
+    if args.scratch:
+        print("   ✨ Training from SCRATCH (ignoring previous phase)")
+    if args.load_model:
+        print("   🔄 Resuming training from CURRENT phase checkpoint")
+
     if args.algo == 'ppo':
         model = MLPCNNPPO(
             state_dim=config['state_dim'],
@@ -102,7 +115,7 @@ def main():
             target_kl=config['target_kl'],
             device=device,
             save_every=config['save_every'],
-            load_model=args.load_model, # Use arg to force load
+            load_model=args.load_model, # Resume training if True
             save_directory=Path(config['save_directory']),
             model_name=config['model_name'],
             load_directory=Path(config['load_directory']),
@@ -126,7 +139,7 @@ def main():
             save_directory=Path(config['save_directory']),
             model_name=config['model_name'],
             load_directory=Path(config['load_directory']),
-            replay_buffer_capacity=config['replay_buffer_capacity'], # Added
+            replay_buffer_capacity=config['replay_buffer_capacity'],
         )
     elif args.algo == 'td3':
         model = MLPCNNTD3(
@@ -139,24 +152,44 @@ def main():
             policy_noise=config['policy_noise'],
             noise_clip=config['noise_clip'],
             policy_freq=config['policy_freq'],
-            lr=config['lr'],
+            actor_lr=config['actor_lr'],
+            critic_lr=config['critic_lr'],
+            exploration_noise_init=config.get('exploration_noise_init', 0.1),
+            exploration_noise_min=config.get('exploration_noise_min', 0.01),
+            exploration_noise_decay=config.get('exploration_noise_decay', 0.9995),
+            use_lr_scheduler=config.get('use_lr_scheduler', False),
+            lr_scheduler_type=config.get('lr_scheduler_type', 'cosine'),
+            lr_decay_epochs=config.get('lr_decay_epochs', 1000),
+            lr_min_factor=config.get('lr_min_factor', 0.1),
+            lr_decay_rate=config.get('lr_decay_rate', 0.99),
+            lr_step_size=config.get('lr_step_size', 100),
+            lr_gamma=config.get('lr_gamma', 0.5),
             save_every=config['save_every'],
             load_model=args.load_model,
             save_directory=Path(config['save_directory']),
             model_name=config['model_name'],
             load_directory=Path(config['load_directory']),
-            replay_buffer_capacity=config['replay_buffer_capacity'], # Added
+            replay_buffer_capacity=config['replay_buffer_capacity'],
         )
 
-    
-    if not args.load_model and prev_phase_model is not None:
+    # Handle Transfer Learning (Explicit Load)
+    # Only if NOT resuming current training AND NOT scratch AND previous model exists
+    if not args.load_model and not args.scratch and prev_phase_model is not None:
         print(f"🔄 Attempting to load previous phase model: {prev_phase_model}")
+        prev_model_path = Path(config['best_checkpoint_dir'])
+        
         try:
-            model.load(filename=prev_phase_model, directory=Path(config['best_checkpoint_dir']))
+            # Explicitly load the previous phase weights
+            model.load(filename=prev_phase_model, directory=prev_model_path)
             print("   ✅ Loaded previous phase model for transfer learning.")
-            config['load_model'] = True
+            
+            # Note: We do NOT set args.load_model = True.
+            # The model is initialized, weights loaded, but we are starting a NEW training session (Phase X).
+            # config['load_model'] remains False, so warmup will execute if configured.
+            
         except FileNotFoundError:
-            print(f"   ⚠️ Previous model {prev_phase_model} not found. Starting from scratch (or random init).")
+            print(f"   ⚠️ Previous model '{prev_phase_model}' not found in {prev_model_path}.")
+            print("   ⚠️ Starting from scratch instead.")
     
     # 4. Start Training
     if args.algo == 'ppo':

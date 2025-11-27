@@ -178,13 +178,24 @@ class MLPCNNTD3:
         policy_noise=0.2,
         noise_clip=0.5,
         policy_freq=2,
-        lr=3e-4,
+        actor_lr=3e-4,
+        critic_lr=3e-4,
+        exploration_noise_init=0.1,
+        exploration_noise_min=0.01,
+        exploration_noise_decay=0.9995,
+        use_lr_scheduler=False,
+        lr_scheduler_type="cosine",
+        lr_decay_epochs=1000,
+        lr_min_factor=0.1,
+        lr_decay_rate=0.99,
+        lr_step_size=100,
+        lr_gamma=0.5,
         save_every=10,
         load_model=False,
         save_directory=Path("robot_nav/models/TD3/checkpoint"),
         model_name="MLPCNNTD3",
         load_directory=Path("robot_nav/models/TD3/checkpoint"),
-        replay_buffer_capacity=100000, # Added
+        replay_buffer_capacity=100000,
     ):
         self.device = device
         self.action_dim = action_dim
@@ -198,18 +209,59 @@ class MLPCNNTD3:
         self.model_name = model_name
         self.save_directory = save_directory
         self.iter_count = 0
+        self.epoch_count = 0
+        
+        # Exploration Noise (Decaying)
+        self.exploration_noise_init = exploration_noise_init
+        self.exploration_noise_min = exploration_noise_min
+        self.exploration_noise_decay = exploration_noise_decay
+        self.current_exploration_noise = exploration_noise_init
+        
+        # LR Scheduler Config
+        self.use_lr_scheduler = use_lr_scheduler
+        self.lr_scheduler_type = lr_scheduler_type
+        self.lr_decay_epochs = lr_decay_epochs
+        self.lr_min_factor = lr_min_factor
+        self.actor_lr_initial = actor_lr
+        self.critic_lr_initial = critic_lr
 
         # Actor
         self.actor = MLPCNNTD3Actor(state_dim, action_dim, max_action).to(device)
         self.actor_target = MLPCNNTD3Actor(state_dim, action_dim, max_action).to(device)
         self.actor_target.load_state_dict(self.actor.state_dict())
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr)
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=actor_lr)
 
         # Critic
         self.critic = MLPCNNTD3Critic(state_dim, action_dim).to(device)
         self.critic_target = MLPCNNTD3Critic(state_dim, action_dim).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=critic_lr)
+        
+        # LR Schedulers
+        if self.use_lr_scheduler:
+            if lr_scheduler_type == "cosine":
+                self.actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    self.actor_optimizer, T_max=lr_decay_epochs, eta_min=actor_lr * lr_min_factor
+                )
+                self.critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    self.critic_optimizer, T_max=lr_decay_epochs, eta_min=critic_lr * lr_min_factor
+                )
+            elif lr_scheduler_type == "linear":
+                lambda_fn = lambda epoch: max(lr_min_factor, 1.0 - epoch / lr_decay_epochs)
+                self.actor_scheduler = torch.optim.lr_scheduler.LambdaLR(self.actor_optimizer, lr_lambda=lambda_fn)
+                self.critic_scheduler = torch.optim.lr_scheduler.LambdaLR(self.critic_optimizer, lr_lambda=lambda_fn)
+            elif lr_scheduler_type == "exponential":
+                self.actor_scheduler = torch.optim.lr_scheduler.ExponentialLR(self.actor_optimizer, gamma=lr_decay_rate)
+                self.critic_scheduler = torch.optim.lr_scheduler.ExponentialLR(self.critic_optimizer, gamma=lr_decay_rate)
+            elif lr_scheduler_type == "step":
+                self.actor_scheduler = torch.optim.lr_scheduler.StepLR(self.actor_optimizer, step_size=lr_step_size, gamma=lr_gamma)
+                self.critic_scheduler = torch.optim.lr_scheduler.StepLR(self.critic_optimizer, step_size=lr_step_size, gamma=lr_gamma)
+            else:
+                raise ValueError(f"Unknown lr_scheduler_type: {lr_scheduler_type}")
+            print(f"✅ LR Scheduler Enabled: {lr_scheduler_type}")
+        else:
+            self.actor_scheduler = None
+            self.critic_scheduler = None
         
         # Buffer
         self.buffer = MultiModalReplayBuffer(capacity=replay_buffer_capacity) # Use external capacity
@@ -279,9 +331,14 @@ class MLPCNNTD3:
             # TD3 Actor returns action in [-max_action, max_action] directly (via tanh * max_action)
             action = self.actor(vec_tensor, grid_tensor).cpu().numpy().flatten()
             
-            # 4. Add Exploration Noise (TD3 Specific)
+            # 4. Add Exploration Noise (Decaying Gaussian)
             if add_noise:
-                noise = np.random.normal(0, self.max_action * 0.1, size=self.action_dim)
+                # Calculate current noise std with decay
+                self.current_exploration_noise = max(
+                    self.exploration_noise_min,
+                    self.exploration_noise_init * (self.exploration_noise_decay ** self.iter_count)
+                )
+                noise = np.random.normal(0, self.max_action * self.current_exploration_noise, size=self.action_dim)
                 action = (action + noise).clip(-self.max_action, self.max_action)
                 
         return action, None, None
@@ -318,7 +375,7 @@ class MLPCNNTD3:
                 target_Q = reward + (1 - done) * self.discount * target_Q
 
             current_Q1, current_Q2 = self.critic(state_vec, state_grid, action)
-            critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
+            critic_loss = F.smooth_l1_loss(current_Q1, target_Q) + F.smooth_l1_loss(current_Q2, target_Q)
             
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
@@ -351,19 +408,38 @@ class MLPCNNTD3:
         avg_actor_loss = total_actor_loss / (iterations / self.policy_freq) if iterations / self.policy_freq > 0 else 0
         avg_q_value_mean = total_q_value_mean / iterations
         avg_q1_q2_diff = total_q1_q2_diff / iterations
-        current_action_std = self.max_action * 0.1 # TD3 exploration noise std
 
         self.writer.add_scalar("train/critic_loss", avg_critic_loss, self.iter_count)
         self.writer.add_scalar("train/actor_loss", avg_actor_loss, self.iter_count)
         self.writer.add_scalar("train/q_value_mean", avg_q_value_mean, self.iter_count)
         self.writer.add_scalar("train/q1_q2_diff", avg_q1_q2_diff, self.iter_count)
-        self.writer.add_scalar("train/action_std", current_action_std, self.iter_count)
+        self.writer.add_scalar("train/exploration_noise", self.current_exploration_noise, self.iter_count)
+        
+        # LR Scheduler Step (called per training iteration, not per epoch)
+        # For epoch-based schedulers, this should be called in the outer training loop
+        # Here we track it for logging purposes
+        if self.use_lr_scheduler:
+            current_actor_lr = self.actor_optimizer.param_groups[0]['lr']
+            current_critic_lr = self.critic_optimizer.param_groups[0]['lr']
+            self.writer.add_scalar("train/actor_lr", current_actor_lr, self.iter_count)
+            self.writer.add_scalar("train/critic_lr", current_critic_lr, self.iter_count)
         
         if self.save_every > 0 and self.iter_count % self.save_every == 0:
             self.save(self.model_name, self.save_directory)
 
         if self.iter_count % 10 == 0:
-            print(f"Iter {self.iter_count} | CriticL: {avg_critic_loss:.4f} | ActorL: {avg_actor_loss:.4f} | Q_Mean: {avg_q_value_mean:.2f} | Q_Diff: {avg_q1_q2_diff:.2f} | Std: {current_action_std:.4f}")
+            print(f"Iter {self.iter_count} | CriticL: {avg_critic_loss:.4f} | ActorL: {avg_actor_loss:.4f} | Q_Mean: {avg_q_value_mean:.2f} | Q_Diff: {avg_q1_q2_diff:.2f} | Noise: {self.current_exploration_noise:.4f}")
+
+    def step_epoch(self):
+        """
+        Call this at the end of each epoch to step the LR schedulers.
+        Should be called from the training loop (e.g., in trainers/off_policy.py).
+        """
+        if self.use_lr_scheduler:
+            self.actor_scheduler.step()
+            self.critic_scheduler.step()
+            self.epoch_count += 1
+            print(f"📉 LR Updated (Epoch {self.epoch_count}): Actor={self.actor_optimizer.param_groups[0]['lr']:.6f}, Critic={self.critic_optimizer.param_groups[0]['lr']:.6f}")
 
     def save(self, filename, directory):
         Path(directory).mkdir(parents=True, exist_ok=True)
