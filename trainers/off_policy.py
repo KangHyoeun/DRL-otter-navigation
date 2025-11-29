@@ -3,6 +3,7 @@ import numpy as np
 import random
 import time
 import json
+from datetime import datetime # Added datetime
 from pathlib import Path
 from tqdm import tqdm
 from robot_nav.SIM_ENV.otter_sim import OtterSIM
@@ -25,7 +26,6 @@ def train_off_policy(config, model, worlds):
     nr_eval_episodes = config['nr_eval_episodes']
     save_every = config['save_every']
     warmup_steps = config['warmup_steps']
-    
     chi_inf = config['chi_inf']
     k = config['k']
     
@@ -212,7 +212,9 @@ def train_off_policy(config, model, worlds):
                         "goal_rate": float(avg_goal),
                         "collision_rate": float(avg_col),
                         "composite_score": float(composite_score),
-                        "phase": config.get('phase', 'unknown')
+                        "phase": config.get('phase', 'unknown'),
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # Added timestamp
+                        "config": config # Added full config
                     }
                     if hasattr(model, 'alpha'):
                         metrics['alpha_temp'] = float(model.alpha.item())

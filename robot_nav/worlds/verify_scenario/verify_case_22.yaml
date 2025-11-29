@@ -19,17 +19,17 @@ robot:
     arrive_mode: position
     goal_threshold: 10.0
 
-    sensors:
-      - type: 'lidar2d'
-        range_min: 0
-        range_max: 100
-        angle_range: 6.2832  # 360 degrees
-        number: 360
-        noise: True
-        std: 0.08
-        angle_std: 0.1
-        offset: [0, 0, 3.14159]
-        alpha: 0.3
+    # sensors:
+    #   - type: 'lidar2d'
+    #     range_min: 0
+    #     range_max: 100
+    #     angle_range: 6.2832  # 360 degrees
+    #     number: 360
+    #     noise: True
+    #     std: 0.08
+    #     angle_std: 0.1
+    #     offset: [0, 0, 3.14159]
+    #     alpha: 0.3
 
     plot:
       show_arrow: true
@@ -45,7 +45,7 @@ obstacle:
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [-63.000, 0.000, 0.0000, 0, 0, 0, 0, 0]
-    goal: [63.000, -0.000, 0.0000]
+    goal: [126.000, -0.000, 0.0000]
     arrive_mode: position
     goal_threshold: 10.0
 
@@ -57,7 +57,7 @@ obstacle:
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [0.000, 90.000, -1.5708, 0, 0, 0, 0, 0]
-    goal: [-0.000, -90.000, -1.5708]
+    goal: [-0.000, -180.000, -1.5708]
     arrive_mode: position
     goal_threshold: 10.0
 
@@ -69,7 +69,7 @@ obstacle:
     shape:
       - {name: 'rectangle', length: 2.0, width: 1.08}
     state: [-77.940, 45.000, -0.5236, 0, 0, 0, 0, 0]
-    goal: [77.940, -45.000, -0.5236]
+    goal: [155.880, -90.000, -0.5236]
     arrive_mode: position
     goal_threshold: 10.0
 

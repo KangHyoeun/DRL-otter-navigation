@@ -3,6 +3,7 @@ import numpy as np
 import random
 import time
 import json
+from datetime import datetime # Added datetime
 from pathlib import Path
 from tqdm import tqdm
 from robot_nav.SIM_ENV.otter_sim import OtterSIM
@@ -44,7 +45,8 @@ def train_on_policy(config, model, worlds):
         os_speed_for_cr=config['os_speed_for_cr'], 
         ts_speed_for_cr=config['ts_speed_for_cr'],
         chi_inf=chi_inf, 
-        k=k
+        k=k,
+        use_enhanced_grid=config.get('use_enhanced_grid', False)
     )
 
     # RMS Warmup
@@ -55,7 +57,8 @@ def train_on_policy(config, model, worlds):
             disable_plotting=True, enable_phase1=True, max_steps=max_steps,
             cr_method='jeon', w_efficiency=config['w_efficiency'], w_safety=config['w_safety'],
             os_speed_for_cr=config['os_speed_for_cr'], ts_speed_for_cr=config['ts_speed_for_cr'],
-            chi_inf=chi_inf, k=k
+            chi_inf=chi_inf, k=k,
+            use_enhanced_grid=config.get('use_enhanced_grid', False)
         )
         w_dist, w_ye, w_psi, w_chi, w_phi, w_col, w_goal, w_a, w_rew, w_state, w_cr, w_grid = w_sim.reset()
         
@@ -95,12 +98,25 @@ def train_on_policy(config, model, worlds):
     distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, reward, robot_state, CR_max, cr_grid = sim.reset(world_file=random.choice(worlds))
     steps = 0
     
+    # Initialize Hidden State for LSTM (if applicable)
+    hidden = None
+    if hasattr(model, 'hidden_size'):
+        h = torch.zeros(1, 1, model.hidden_size).to(model.device)
+        c = torch.zeros(1, 1, model.hidden_size).to(model.device)
+        hidden = (h, c)
+    
     while epoch < max_epochs:
         state, terminal = prepare_multi_modal_state(
             distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, robot_state, CR_max, grid_map=cr_grid
         )
         
-        action, log_prob, state_val = model.get_action(state, add_noise=True)
+        # Get Action (Handle LSTM)
+        if hidden is not None:
+            current_hidden = hidden # Store for buffer
+            action, log_prob, state_val, next_hidden = model.get_action(state, hidden, add_noise=True)
+            hidden = next_hidden
+        else:
+            action, log_prob, state_val = model.get_action(state, add_noise=True)
 
         a_in = [
             (action[0] + 1) * 1.5,
@@ -115,9 +131,14 @@ def train_on_policy(config, model, worlds):
             distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, robot_state, CR_max, grid_map=cr_grid
         )
         
-        model.buffer.add(
-            state, action, reward, terminal, next_state, log_prob, state_val
-        )
+        if hidden is not None:
+            model.buffer.add(
+                state, action, reward, terminal, next_state, log_prob, state_val, current_hidden
+            )
+        else:
+            model.buffer.add(
+                state, action, reward, terminal, next_state, log_prob, state_val
+            )
 
         steps += 1
 
@@ -173,7 +194,9 @@ def train_on_policy(config, model, worlds):
                         "collision_rate": float(avg_col),
                         "action_std": float(current_std),
                         "composite_score": float(composite_score),
-                        "phase": config.get('phase', 'unknown')
+                        "phase": config.get('phase', 'unknown'),
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # Added timestamp
+                        "config": config # Added full config
                     }
                     with open(best_checkpoint_dir / f"best_metrics_{model_name}.json", "w") as f:
                         json.dump(metrics, f, indent=2)
@@ -187,6 +210,12 @@ def train_on_policy(config, model, worlds):
             
             distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, reward, robot_state, CR_max, cr_grid = sim.reset(world_file=random.choice(worlds))
             steps = 0
+            
+            # Reset Hidden State
+            if hasattr(model, 'hidden_size'):
+                h = torch.zeros(1, 1, model.hidden_size).to(model.device)
+                c = torch.zeros(1, 1, model.hidden_size).to(model.device)
+                hidden = (h, c)
 
     print("✅ TRAINING COMPLETED!")
 
@@ -204,12 +233,23 @@ def evaluate(model, epoch, world_files, eval_episodes, max_steps, config):
         disable_plotting=True, enable_phase1=True, max_steps=max_steps,
         cr_method='jeon', w_efficiency=config['w_efficiency'], w_safety=config['w_safety'],
         os_speed_for_cr=config['os_speed_for_cr'], ts_speed_for_cr=config['ts_speed_for_cr'],
-        chi_inf=config['chi_inf'], k=config['k']
+        chi_inf=config['chi_inf'], k=config['k'],
+        use_enhanced_grid=config.get('use_enhanced_grid', False)
     )
 
     for _ in tqdm(range(eval_episodes), desc="Evaluating"):
         selected_world = random.choice(world_files)
         distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, reward, robot_state, CR_max, cr_grid = sim.reset(world_file=selected_world)
+        
+        # Init Hidden
+        hidden = None
+        if hasattr(model, 'hidden_size'):
+            h = torch.zeros(1, 1, model.device).to(model.device) # Wait, model.device is string or device? Usually device.
+            # Correction: model.device might be 'cuda' string.
+            # Safe way:
+            h = torch.zeros(1, 1, model.hidden_size).to(model.policy.device)
+            c = torch.zeros(1, 1, model.hidden_size).to(model.policy.device)
+            hidden = (h, c)
         
         ep_reward = 0
         for s in range(max_steps):
@@ -217,10 +257,14 @@ def evaluate(model, epoch, world_files, eval_episodes, max_steps, config):
                 distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, robot_state, CR_max, grid_map=cr_grid
             )
             
-            action, _, _ = model.get_action(state, add_noise=False, update_rms=False)
+            if hidden is not None:
+                action_np, _, _, next_hidden = model.get_action(state, hidden, add_noise=False, update_rms=False)
+                hidden = next_hidden
+            else:
+                action_np, _, _ = model.get_action(state, add_noise=False, update_rms=False)
             a_in = [
-                (action[0] + 1) * 1.5,
-                action[1] * 0.1745, 
+                (action_np[0] + 1) * 1.5,
+                action_np[1] * 0.1745, 
             ]
             distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, reward, robot_state, CR_max, cr_grid = sim.step(u_ref=a_in[0], r_ref=a_in[1])
             ep_reward += reward

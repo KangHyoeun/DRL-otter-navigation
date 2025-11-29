@@ -9,7 +9,7 @@ state_dim: 12
 max_action: 1.0
 
 # Training Loop
-max_epochs: 1000
+max_epochs: 300
 episodes_per_epoch: 40
 nr_eval_episodes: 40
 save_every: 10

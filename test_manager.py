@@ -13,6 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 # Import Models
 from robot_nav.models.PPO.MLPCNNPPO import MLPCNNPPO
+from robot_nav.models.PPO.LSTMPPO import LSTMPPO
 from robot_nav.models.SAC.MLPCNNSAC import MLPCNNSAC
 from robot_nav.models.TD3.MLPCNNTD3 import MLPCNNTD3
 
@@ -40,6 +41,7 @@ def main():
     parser.add_argument("--render", action='store_true', help="Enable rendering")
     parser.add_argument("--model_path", type=str, default=None, help="Specific model path to load (optional)")
     parser.add_argument("--model_tag", type=str, default="BEST", help="Tag for the model to load (e.g., 'BEST', 'LAST', '100')") # Added
+    parser.add_argument("--use_lstm", action='store_true', help="Use LSTM-PPO model")
     args = parser.parse_args()
 
     # 1. Load Configurations
@@ -98,15 +100,38 @@ def main():
     model = None
 
     if args.algo == 'ppo':
-        model = MLPCNNPPO(
-            state_dim=config['state_dim'],
-            action_dim=config['action_dim'],
-            max_action=config['max_action'],
-            device=device,
-            load_model=True,
-            model_name=model_name,
-            load_directory=load_directory,
-        )
+        if args.use_lstm:
+            model = LSTMPPO(
+                state_dim=config['state_dim'],
+                action_dim=config['action_dim'],
+                max_action=config['max_action'],
+                lr_actor=config['lr_actor'],
+                lr_critic=config['lr_critic'],
+                gamma=config['gamma'],
+                eps_clip=config['eps_clip'],
+                log_std_init=config['log_std_init'],
+                ent_coef_init=config['ent_coef_init'],
+                ent_coef_decay_rate=config['ent_coef_decay_rate'],
+                min_ent_coef=config['min_ent_coef'],
+                target_kl=config['target_kl'],
+                device=device,
+                save_every=config['save_every'],
+                load_model=True, # Always load for test
+                save_directory=Path(config['save_directory']),
+                model_name=model_name, # Use constructed name
+                load_directory=load_directory,
+                hidden_size=config.get('hidden_size', 512)
+            )
+        else:
+            model = MLPCNNPPO(
+                state_dim=config['state_dim'],
+                action_dim=config['action_dim'],
+                max_action=config['max_action'],
+                device=device,
+                load_model=True,
+                model_name=model_name,
+                load_directory=load_directory,
+            )
     elif args.algo == 'sac':
         model = MLPCNNSAC(
             state_dim=config['state_dim'],
@@ -144,8 +169,9 @@ def main():
         w_safety=config.get('w_safety', 1.0),
         os_speed_for_cr=config.get('os_speed_for_cr', 3.0),
         ts_speed_for_cr=config.get('ts_speed_for_cr', 3.0),
-        chi_inf=1.0,
-        k=1.0
+        chi_inf=config.get('chi_inf', 0.5), 
+        k=config.get('k', 1.0),
+        use_enhanced_grid=args.use_lstm
     )
 
     # 5. Test Loop
@@ -169,15 +195,28 @@ def main():
         count = 0
         ep_reward = 0
         done = False
+        # Initialize Hidden State for LSTM
+        hidden = None
         
         while not done and count < sim.max_steps:
+            steps = count # Renamed from `count` to `steps` for clarity, matching snippet's `steps`
+            current_time = steps * sim.dt
+            
             # DRL Action Generation
             state, terminal = model.prepare_state(
                 distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, a, robot_state, CR_max, grid_map=cr_grid
             )
             
             # Get deterministic action
-            action, _, _ = model.get_action(state, add_noise=False, update_rms=False)
+            if args.algo == 'ppo':
+                if args.use_lstm:
+                    action, _, _, hidden = model.get_action(state, hidden, add_noise=False)
+                else:
+                    action, _, _, _ = model.get_action(state, add_noise=False)
+            elif args.algo == 'sac':
+                action, _, _ = model.get_action(state, add_noise=False)
+            elif args.algo == 'td3':
+                action, _, _ = model.get_action(state, add_noise=False)
             
             # Action Scaling (Same as training)
             # Raw action is [-1, 1]

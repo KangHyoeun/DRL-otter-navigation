@@ -11,6 +11,7 @@ from colregs_core.utils import calculate_distance, calculate_cte, calculate_ref_
 from colregs_core.geometry import heading_speed_to_velocity, math_to_ned_heading, math_to_maritime_position
 from colregs_core.reward import JeonRewardCalculator
 from colregs_core.risk import ShipDomainParams, JeonCollisionRisk, ChunCollisionRisk
+import cv2
 
 class OtterSIM(SIM_ENV):
     """
@@ -25,7 +26,7 @@ class OtterSIM(SIM_ENV):
                  r_ref_deadzone: float = 0.01,
                  grid_forward: int = 128, grid_lateral: int = 128,
                  obs_distance_forward: float = 200.0, obs_distance_lateral: float = 200.0,
-                 chi_inf=0.5, k=1.0):
+                 chi_inf=0.5, k=1.0, use_enhanced_grid=False):
         """
         Initialize Otter USV simulation environment.
         """
@@ -47,6 +48,7 @@ class OtterSIM(SIM_ENV):
         self.prev_position = None
         self.prev_distance = None
         self.prev_heading = None
+        self.prev_speed = None # Added prev_speed initialization
         
         robot_state = self.env.robot.state
         robot_goal = self.robot_info.goal
@@ -63,6 +65,7 @@ class OtterSIM(SIM_ENV):
         self.r_ref_deadzone = r_ref_deadzone
         self.chi_inf = chi_inf
         self.k = k
+        self.use_enhanced_grid = use_enhanced_grid
         
         # Grid configuration
         self.grid_forward = 128
@@ -137,6 +140,14 @@ class OtterSIM(SIM_ENV):
         
         self.reward_log_counter = 0 # Initialize reward log counter
         self.episode_step_count = 0 # Initialize episode step counter
+        
+        # Initialize Plotting Extras
+        if not disable_plotting:
+            if hasattr(self.env, 'plot'):
+                if hasattr(self.env.plot, 'init_info_box'):
+                    self.env.plot.init_info_box()
+                if hasattr(self.env.plot, 'init_action_bar'):
+                    self.env.plot.init_action_bar()
             
     def step(self, u_ref=3.0, r_ref=0.0):
         if abs(r_ref) < self.r_ref_deadzone:
@@ -244,11 +255,25 @@ class OtterSIM(SIM_ENV):
         self.prev_position = os_position
         self.prev_heading = os_heading
         self.prev_distance = distance
+        self.prev_speed = os_speed # Store os_speed for cr_grid calculation
         
+        # Grid Map Generation
+        if self.use_enhanced_grid:
+            cr_grid = self._create_enhanced_cr_grid(self.prev_position, self.prev_heading, self.prev_speed)
+        else:
+            cr_grid = self._create_cr_grid(self.prev_position, self.prev_heading, self.prev_speed)
+        
+        # Add channel dim if needed (for consistency with model input)
+        # _create_enhanced_cr_grid returns (2, H, W)
+        # _create_cr_grid returns (H, W) -> needs unsqueeze if model expects (C, H, W)
+        # But usually we return numpy array and let model/trainer handle tensor conversion.
+        # However, MLPCNNPPO expects (1, H, W) or (H, W).
+        # Let's keep it as is.
+
         # Render if enabled
         if not self.env.disable_all_plot:
             self.env.render(interval=0.001)
-
+        
         return distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action_return, reward, robot_state, CR_max, cr_grid
     
     def reset(self, robot_state=None, robot_goal=None, random_obstacles=False, random_obstacle_ids=None, world_file=None):
@@ -458,6 +483,136 @@ class OtterSIM(SIM_ENV):
         # Numpy's maximum function is efficient
         np.maximum(grid_slice, cr_value, out=grid_slice, where=mask)
 
+    def _create_enhanced_cr_grid(self, os_position, os_heading, os_speed):
+        """
+        Create a 2-channel grid:
+        Channel 0: CR Grid + OS Reference Path (Line from Start to Goal)
+        Channel 1: CR Grid + TS Velocity Vectors
+        """
+        # 1. Base CR Grid (Channel 0 & 1 share the same CR base)
+        base_grid = np.zeros((self.grid_forward, self.grid_lateral), dtype=np.float32)
+        base_grid += 0.01  # Background noise
+        
+        os_velocity = heading_speed_to_velocity(os_heading, os_speed)
+        
+        # Pre-calculate common values
+        heading_rad = np.radians(os_heading)
+        cos_head = np.cos(heading_rad)
+        sin_head = np.sin(heading_rad)
+        center_y = self.grid_forward / 2.0
+        center_x = self.grid_lateral / 2.0
+        
+        # Domain semi-axes in grid cells
+        cells_forward = (self.ship_domain.r_bow + self.ship_domain.r_stern) / 2.0 / self.cell_size_forward
+        cells_lateral = (self.ship_domain.r_starboard + self.ship_domain.r_port) / 2.0 / self.cell_size_lateral
+        
+        cells_forward = max(1.0, cells_forward)
+        cells_lateral = max(1.0, cells_lateral)
+        
+        # Store TS info for Channel 1 drawing
+        ts_draw_info = []
+        
+        for obstacle in self.env.obstacle_list:
+            ts_state = obstacle.state
+            if ts_state.shape[0] < 5: continue
+            
+            # Extract TS state
+            ts_pos_math_x, ts_pos_math_y = ts_state[0, 0], ts_state[1, 0]
+            ts_pos_y, ts_pos_x = math_to_maritime_position(ts_pos_math_x, ts_pos_math_y) # (N, E)
+            ts_position = [ts_pos_y, ts_pos_x]
+            
+            ts_heading_math = np.degrees(ts_state[2, 0])
+            ts_heading = math_to_ned_heading(ts_heading_math)
+            ts_speed = np.linalg.norm([ts_state[3, 0], ts_state[4, 0]])
+            ts_velocity = heading_speed_to_velocity(ts_heading, ts_speed)
+            
+            # CR Calculation
+            cr_result = self.cr_calculator.calculate_collision_risk(
+                os_position=os_position, os_velocity=os_velocity, os_heading=os_heading, os_speed=os_speed,
+                ts_position=ts_position, ts_velocity=ts_velocity, ts_heading=ts_heading, ts_speed=ts_speed
+            )
+            cr_value = cr_result['cr']
+            
+            # Coordinate Transformation (World to Grid)
+            rel_n = ts_position[0] - os_position[0]
+            rel_e = ts_position[1] - os_position[1]
+            
+            body_forward =  rel_n * cos_head + rel_e * sin_head
+            body_right   = -rel_n * sin_head + rel_e * cos_head
+            
+            grid_y_center = center_y + (body_forward / self.cell_size_forward)
+            grid_x_center = center_x + (body_right / self.cell_size_lateral)
+            
+            # Fast Vectorized Assignment
+            enhanced_cr = max(cr_value, 0.1)
+            self._assign_cr_to_grid_vectorized(base_grid, grid_x_center, grid_y_center, enhanced_cr, cells_lateral, cells_forward)
+            
+            # Store info for velocity vector
+            ts_draw_info.append({
+                'center_x': grid_x_center,
+                'center_y': grid_y_center,
+                'speed': ts_speed,
+                'heading': ts_heading
+            })
+
+        # Create Channels
+        # Channel 0: CR Grid + OS Reference Path
+        grid_ch0 = base_grid.copy()
+        
+        # Channel 1: CR Grid + TS Velocity Vectors
+        grid_ch1 = base_grid.copy()
+        
+        # --- Channel 0: OS Reference Path ---
+        # Start and Goal positions (World Frame)
+        # Transform to Grid Frame
+        def world_to_grid(pos_n, pos_e):
+            rel_n = pos_n - os_position[0]
+            rel_e = pos_e - os_position[1]
+            body_fwd = rel_n * cos_head + rel_e * sin_head
+            body_rgt = -rel_n * sin_head + rel_e * cos_head
+            gy = center_y + (body_fwd / self.cell_size_forward)
+            gx = center_x + (body_rgt / self.cell_size_lateral)
+            return int(gx), int(gy)
+
+        start_gx, start_gy = world_to_grid(self.start_position[0], self.start_position[1])
+        goal_gx, goal_gy = world_to_grid(self.goal_position[0], self.goal_position[1])
+        
+        # Draw Line using CV2
+        # cv2.line(img, pt1, pt2, color, thickness)
+        # pt is (x, y)
+        # Thickness increased to 3 for CNN visibility (stride 4)
+        cv2.line(grid_ch0, (start_gx, start_gy), (goal_gx, goal_gy), 1.0, 3)
+        
+        # --- Channel 1: TS Velocity Vectors ---
+        for info in ts_draw_info:
+            cx, cy = int(info['center_x']), int(info['center_y'])
+            speed = info['speed']
+            heading = info['heading'] # NED
+            
+            # Velocity Vector in World Frame
+            ts_vel_n = speed * np.cos(np.radians(heading))
+            ts_vel_e = speed * np.sin(np.radians(heading))
+            
+            # Rotate to Body Frame (Grid Frame)
+            vel_fwd = ts_vel_n * cos_head + ts_vel_e * sin_head
+            vel_rgt = -ts_vel_n * sin_head + ts_vel_e * cos_head
+            
+            vec_len = np.sqrt(vel_fwd**2 + vel_rgt**2)
+            if vec_len > 0:
+                dir_fwd = vel_fwd / vec_len
+                dir_rgt = vel_rgt / vec_len
+                
+                draw_len = min(30.0, speed * 5.0) # 1 m/s = 5 px
+                
+                end_x = int(cx + dir_rgt * draw_len)
+                end_y = int(cy + dir_fwd * draw_len)
+                
+                # Thickness increased to 2 for CNN visibility
+                cv2.line(grid_ch1, (cx, cy), (end_x, end_y), 1.0, 2)
+
+        # Stack: (2, 128, 128)
+        return np.stack([grid_ch0, grid_ch1], axis=0)
+
     def render(self, mode='human', **kwargs):
         """
         Render the simulation with enhanced visualization.
@@ -503,4 +658,3 @@ class OtterSIM(SIM_ENV):
                 self.grid_img = self.grid_ax.imshow(grid_map, cmap='jet', vmin=0, vmax=1, origin='lower')
             else:
                 self.grid_img.set_data(grid_map)
-```

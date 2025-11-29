@@ -9,7 +9,7 @@ from colregs_core.geometry import math_to_maritime_position, ned_to_math_heading
 # Set matplotlib backend to Agg for non-interactive plotting
 plt.switch_backend('Agg')
 
-def visualize_grid_map(world_file="robot_nav/worlds/imazu_scenario/imazu_case_18.yaml", num_steps=500):
+def visualize_grid_map(world_file="./robot_nav/worlds/verify_scenario/verify_case_18.yaml", num_steps=500):
     print(f"\n" + "=" * 60)
     print("📊 Grid Map Visualization Test")
     print(f"   World File: {world_file}")
@@ -27,15 +27,15 @@ def visualize_grid_map(world_file="robot_nav/worlds/imazu_scenario/imazu_case_18
     )
 
     # Create a directory to save images
-    output_dir = "grid_map_frames"
+    output_dir = "grid_map_frames_enhanced"
     os.makedirs(output_dir, exist_ok=True)
     print(f"Saving grid map frames to: {output_dir}/")
 
-    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    # 2 Subplots for 2 Channels
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
     
-    # Initial reset to get the first state and grid map
-    distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action_return, reward, robot_state, CR_max, cr_grid = sim.reset()
-
+    # Initial reset
+    sim.reset()
     print("Starting grid map visualization...")
 
     for step in range(num_steps):
@@ -45,38 +45,52 @@ def visualize_grid_map(world_file="robot_nav/worlds/imazu_scenario/imazu_case_18
         u_ref = 3.0
         r_ref = 0.0
 
-        distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action_return, reward, robot_state, CR_max, cr_grid = sim.step(u_ref=u_ref, r_ref=r_ref)
+        # Step simulation
+        distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action_return, reward, robot_state, CR_max, _ = sim.step(u_ref=u_ref, r_ref=r_ref)
 
-        # Clear previous plot for animation
-        ax.clear() 
+        # Calculate current speed from robot_state
+        # robot_state: [x, y, theta, u, v, r] (math coordinates usually)
+        # u is surge velocity, v is sway velocity
+        current_u = robot_state[3, 0]
+        current_v = robot_state[4, 0]
+        current_speed = np.sqrt(current_u**2 + current_v**2)
+
+        # Manually create enhanced grid
+        # Note: sim.prev_position, etc. are updated in step()
+        enhanced_grid = sim._create_enhanced_cr_grid(sim.prev_position, sim.prev_heading, current_speed)
         
-        # Plot the grid map
-        # cr_grid is [Forward, Lateral]. imshow expects [Rows(Y), Cols(X)].
-        # So we plot cr_grid directly with origin='lower' (Forward 0 at bottom).
-        im = ax.imshow(cr_grid, origin='lower', cmap='hot', vmin=0, vmax=1.0,
+        # Clear axes
+        axes[0].clear()
+        axes[1].clear()
+        
+        # Channel 0: OS Path
+        im0 = axes[0].imshow(enhanced_grid[0], origin='lower', cmap='hot', vmin=0, vmax=1.0,
                         extent=[0, sim.grid_lateral, 0, sim.grid_forward])
+        axes[0].set_title(f'Channel 0: OS Path (Step {step})')
+        axes[0].set_xlabel('Lateral')
+        axes[0].set_ylabel('Forward')
         
-        # Add colorbar only once (for the first frame)
-        if step == 0:
-            cbar = fig.colorbar(im, ax=ax, orientation='vertical')
-            cbar.set_label('Collision Risk (0-1)')
-
-        # Overlay OS position (center of the grid in body frame)
+        # Channel 1: TS Velocity
+        im1 = axes[1].imshow(enhanced_grid[1], origin='lower', cmap='hot', vmin=0, vmax=1.0,
+                        extent=[0, sim.grid_lateral, 0, sim.grid_forward])
+        axes[1].set_title(f'Channel 1: TS Velocity (CR_max: {CR_max:.2f})')
+        axes[1].set_xlabel('Lateral')
+        
+        # Overlay OS position on both
         os_grid_x = sim.grid_lateral / 2.0
         os_grid_y = sim.grid_forward / 2.0
-        ax.scatter(os_grid_x, os_grid_y, color='blue', marker='o', s=100, label='Own Ship')
+        axes[0].scatter(os_grid_x, os_grid_y, color='blue', marker='o', s=100, label='Own Ship')
+        axes[1].scatter(os_grid_x, os_grid_y, color='blue', marker='o', s=100, label='Own Ship')
         
-        ax.set_title(f'Step: {step}, Time: {current_time:.1f}s, CR_max: {CR_max:.2f}')
-        ax.set_xlabel('Lateral (Right) [cells]')
-        ax.set_ylabel('Forward [cells]')
-        ax.set_xlim(0, sim.grid_lateral)
-        ax.set_ylim(0, sim.grid_forward)
-        ax.set_aspect('equal')
+        if step == 0:
+            fig.colorbar(im0, ax=axes[0], orientation='vertical', label='Value')
+            fig.colorbar(im1, ax=axes[1], orientation='vertical', label='Value')
+
         plt.tight_layout()
         
-        # Save the current frame to a file
+        # Save frame
         frame_filename = os.path.join(output_dir, f"grid_map_frame_{step:04d}.png")
-        fig.savefig(frame_filename)
+        fig.savefig(frame_filename, dpi=300)
 
         if goal or collision:
             print(f"Simulation terminated at step {step}. Goal: {goal}, Collision: {collision}")

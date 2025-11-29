@@ -2,7 +2,7 @@ import sys
 import os
 
 # Ensure the local irsim package is used
-sys.path.insert(0, '/home/hyo/ir-sim')
+# sys.path.insert(0, '/home/hyo/ir-sim')
 
 import irsim
 import matplotlib.pyplot as plt # Import matplotlib for saving figure
@@ -13,7 +13,7 @@ for i in range(1000):
     env.step()
     
     # Update Info Box manually for demonstration
-    if hasattr(env.plot, 'update_info_box'):
+    if hasattr(env, 'plot') and hasattr(env.plot, 'update_info_box'):
         robot_state = env.robot.state
         info_str = f"u: {robot_state[3, 0]:.2f} m/s\nr: {robot_state[5, 0]:.3f} rad/s"
         env.plot.update_info_box(info_str)

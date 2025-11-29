@@ -68,7 +68,7 @@ class MLPCNNPPOActorCritic(nn.Module):
     
     Inputs:
         - Vector: (Batch, 12) -> Split into [vel(2), goal(3), error(4), rps(2), cr(1)]
-        - Grid:   (Batch, 1, 128, 128)
+        - Grid:   (Batch, 2, 128, 128)
     
     Architecture:
         - Split MLPs: Process each semantic group separately
@@ -88,7 +88,7 @@ class MLPCNNPPOActorCritic(nn.Module):
         
         # ========== CNN Branch (for 128x128 Grid) ==========
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=8, stride=4), # 128->31
+            nn.Conv2d(2, 32, kernel_size=8, stride=4), # 128->31
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=4, stride=2), # 31->14
             nn.ReLU(),
@@ -256,6 +256,8 @@ class MLPCNNPPO:
         save_directory=Path("robot_nav/models/PPO/checkpoint"),
         model_name="MLPCNNPPO",
         load_directory=Path("robot_nav/models/PPO/checkpoint"),
+        lr_decay_epochs=1000, # Default decay epochs
+        lr_min_factor=0.1,    # Default min factor
     ):
         self.max_action = max_action
         self.vec_dim = state_dim
@@ -293,6 +295,11 @@ class MLPCNNPPO:
             {'params': base_params, 'lr': lr_actor},
             {'params': critic_head_params, 'lr': lr_critic}
         ], eps=1e-5)
+        
+        # LR Scheduler
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, T_max=lr_decay_epochs, eta_min=lr_actor * lr_min_factor
+        )
 
         self.policy_old = MLPCNNPPOActorCritic(
             state_dim, action_dim, log_std_init, self.max_action, self.device
@@ -353,7 +360,7 @@ class MLPCNNPPO:
                 vec_tensor, grid_tensor, sample=add_noise
             )
 
-        return action.detach().cpu().numpy().flatten(), action_logprob, state_val
+        return action.detach().cpu().numpy().flatten(), action_logprob.detach().cpu(), state_val.detach().cpu()
     
     def compute_gae(self, rewards, values, next_values, dones):
         rewards = rewards.to(self.device)
@@ -511,6 +518,9 @@ class MLPCNNPPO:
         # Decay entropy coefficient
         self.decay_ent_coef()
         
+        # Step LR Scheduler
+        self.scheduler.step()
+        
         self.iter_count += 1
         
         avg_loss = total_loss / num_updates if num_updates > 0 else 0
@@ -521,6 +531,7 @@ class MLPCNNPPO:
         avg_clip_frac = total_clip_frac / num_updates if num_updates > 0 else 0
         
         current_std = torch.exp(self.policy.log_std).mean().item() 
+        current_lr = self.optimizer.param_groups[0]['lr']
         
         self.writer.add_scalar("train/total_loss", avg_loss, self.iter_count)
         self.writer.add_scalar("train/actor_loss", avg_actor_loss, self.iter_count)
@@ -530,9 +541,10 @@ class MLPCNNPPO:
         self.writer.add_scalar("train/action_std", current_std, self.iter_count)
         self.writer.add_scalar("train/approx_kl", avg_approx_kl, self.iter_count)
         self.writer.add_scalar("train/clip_fraction", avg_clip_frac, self.iter_count)
+        self.writer.add_scalar("train/learning_rate", current_lr, self.iter_count)
         
         if self.iter_count % 10 == 0:
-            print(f"Iter {self.iter_count} | Loss: {avg_loss:.4f} | Actor: {avg_actor_loss:.4f} | Critic: {avg_critic_loss:.4f} | KL: {avg_approx_kl:.4f} | Clip: {avg_clip_frac:.2f}")
+            print(f"Iter {self.iter_count} | Loss: {avg_loss:.4f} | Actor: {avg_actor_loss:.4f} | Critic: {avg_critic_loss:.4f} | KL: {avg_approx_kl:.4f} | Clip: {avg_clip_frac:.2f} | LR: {current_lr:.6f}")
 
     def prepare_state(self, distance, y_e, psi_e, chi_e, phi_tilde, collision, goal, action, robot_state, CR_max, grid_map=None):
         """

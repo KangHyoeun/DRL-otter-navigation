@@ -155,17 +155,17 @@ robot:
     arrive_mode: position
     goal_threshold: 10.0
 
-    sensors:
-      - type: 'lidar2d'
-        range_min: 0
-        range_max: 100
-        angle_range: 6.2832  # 360 degrees
-        number: 360
-        noise: True
-        std: 0.08
-        angle_std: 0.1
-        offset: [0, 0, 3.14159]
-        alpha: 0.3
+    # sensors:
+    #   - type: 'lidar2d'
+    #     range_min: 0
+    #     range_max: 100
+    #     angle_range: 6.2832  # 360 degrees
+    #     number: 360
+    #     noise: True
+    #     std: 0.08
+    #     angle_std: 0.1
+    #     offset: [0, 0, 3.14159]
+    #     alpha: 0.3
 
     plot:
       show_arrow: true
@@ -195,8 +195,8 @@ def generate_obstacle_yaml(target_ships):
         # Calculate goal position (ship travels through collision point toward opposite direction)
         # Collision point is at origin (0, 0)
         # Goal is 2x distance beyond collision point
-        goal_x = -x_m
-        goal_y = -y_m
+        goal_x = -2*x_m
+        goal_y = -2*y_m
         
         obstacle_yaml = f"""  - number: 1
     kinematics: {{name: 'otter_usv'}}
